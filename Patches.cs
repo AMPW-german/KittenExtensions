@@ -2,6 +2,9 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Reflection.Emit;
+using Brutal.VulkanApi;
+using Brutal.VulkanApi.Abstractions;
 using HarmonyLib;
 using KSA;
 
@@ -15,6 +18,46 @@ internal static class Patches
   {
     // We want to load before main, but after all mod assemblies are loaded in
     AssetEx.Init();
+  }
+}
+
+[HarmonyPatch]
+internal static class GaugeRendererPatch
+{
+  [HarmonyTargetMethod]
+  internal static MethodBase TargetMethod() =>
+    typeof(GaugeRenderer).GetConstructor([
+      typeof(GaugeCanvas), typeof(GaugeComponent), typeof(RendererContext), typeof(Span<ShaderReference>)
+    ]);
+
+  [HarmonyTranspiler]
+  internal static IEnumerable<CodeInstruction> GaugeRenderer_Ctor_Tranpsile(
+    IEnumerable<CodeInstruction> instructions)
+  {
+    var matcher = new CodeMatcher(instructions);
+
+    Span<CodeInstruction> extraArgs = [
+      new CodeInstruction(OpCodes.Ldarg_2) // add GaugeComponent arg
+    ];
+    var fr = new MatcherFindReplace(matcher, "GaugeRenderer.ctor", extraArgs);
+
+    fr.FindReplace(
+      typeof(DescriptorPoolExExtensions).GetMethod(nameof(DescriptorPoolExExtensions.CreateDescriptorPool)),
+      typeof(ShaderEx).GetMethod(nameof(ShaderEx.GaugeCreateDescriptorPool))
+    );
+
+    fr.FindReplace(
+      typeof(DescriptorSetLayoutExExtensions).GetMethod(
+        nameof(DescriptorSetLayoutExExtensions.CreateDescriptorSetLayout)),
+      typeof(ShaderEx).GetMethod(nameof(ShaderEx.GaugeCreateDescriptorSetLayout))
+    );
+
+    fr.FindReplace(
+      typeof(VkDeviceExtensions).GetMethod(nameof(VkDeviceExtensions.UpdateDescriptorSets)),
+      typeof(ShaderEx).GetMethod(nameof(ShaderEx.GaugeUpdateDescriptorSets))
+    );
+
+    return matcher.Instructions();
   }
 }
 
@@ -66,5 +109,27 @@ internal static class XmlLoaderPatch
       return false;
     type = method.GetGenericArguments()[0];
     return true;
+  }
+}
+
+public readonly ref struct MatcherFindReplace(
+  CodeMatcher matcher, string name, Span<CodeInstruction> extraArgs = default)
+{
+  private readonly CodeMatcher matcher = matcher;
+  private readonly string name = name;
+  private readonly Span<CodeInstruction> extraArgs = extraArgs;
+
+  public void FindReplace(MethodInfo from, MethodInfo to)
+  {
+    matcher.Start();
+    matcher.MatchStartForward(CodeMatch.Calls(from));
+    matcher.ThrowIfInvalid($"could not find call to {from} in {name}");
+
+    // replace call
+    matcher.Instruction.operand = to;
+
+    // insert extra args before
+    foreach (var arg in extraArgs)
+      matcher.InsertAndAdvance(new CodeInstruction(arg));
   }
 }
