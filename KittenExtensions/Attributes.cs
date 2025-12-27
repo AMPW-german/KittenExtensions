@@ -8,5 +8,11 @@ namespace KittenExtensions;
 [AttributeUsage(AttributeTargets.Class)]
 internal class KxAssetAttribute(string xmlElement) : Attribute;
 
-[AttributeUsage(AttributeTargets.Class)]
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
 internal class KxAssetInjectAttribute(Type parent, string member, string xmlElement) : Attribute;
+
+[AttributeUsage(AttributeTargets.Struct)]
+internal class KxUniformBufferAttribute(string xmlElement) : Attribute;
+
+[AttributeUsage(AttributeTargets.Field)]
+internal class KxUniformBufferLookupAttribute() : Attribute;

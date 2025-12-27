@@ -4,7 +4,7 @@ Utilities for extending KSA assets.
 
 Current Features:
 - Allows adding new xml asset types that can be used by any mod XML
-- Adds a `<ShaderEx>` asset that allows adding additional texture bindings to the fragment shader of a gauge component
+- Adds a `<ShaderEx>` asset that allows adding additional texture and uniform buffer bindings to the fragment shader of a gauge component
 
 ## Installation
 
@@ -29,7 +29,7 @@ namespace KittenExtensions
 {
   [AttributeUsage(AttributeTargets.Class)]
   internal class KxAssetAttribute(string xmlElement) : Attribute;
-  [AttributeUsage(AttributeTargets.Class)]
+  [AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
   internal class KxAssetInjectAttribute(Type parent, string member, string xmlElement) : Attribute;
 }
 ```
@@ -69,13 +69,14 @@ public class HexColor : ColorReference
 
 ### Shader Extensions
 
-Additional texture bindings can be added to a shader by using the `ShaderEx` top-level tag, or the `FragmentEx` tag in a gauge component. Top-level defined shaders will still only have the additional textures injected when used as a gauge component fragment shader
+Additional bindings can be added to a shader by using the `ShaderEx` top-level tag, or the `FragmentEx` tag in a gauge component. Top-level defined shaders will still only have the additional bindings injected when used as a gauge component fragment shader
 
 ```xml
 <Assets>
   <ShaderEx Id="MyFragmentShader" Path="MyShader.frag">
     <TextureBinding Path="Texture1.png" />
     <TextureBinding Path="Texture2.png" />
+    <MyBuffer Id="MyBuf" Size="1" />
   </ShaderEx>
 </Assets>
 ```
@@ -85,14 +86,83 @@ Additional texture bindings can be added to a shader by using the `ShaderEx` top
   <FragmentEx Path="MyShader.frag">
     <TextureBinding Path="Texture1.png" />
     <TextureBinding Path="Texture2.png" />
+    <MyBuffer Id="MyBuf" Size="1" />
   </FragmentEx>
 </Component>
 ```
 
-The additional textures will be available in the fragment shader on set 1, starting from binding 1 (binding 0 will be the existing gauge font atlas)
+The additional bindings will be available in the fragment shader on set 1, starting from binding 1 (binding 0 will be the existing gauge font atlas)
 
 ```glsl
 // in MyShader.frag
 layout(set = 1, binding = 1) uniform sampler2D texture1;
 layout(set = 1, binding = 2) uniform sampler2D texture2;
+layout(set = 1, binding = 3) uniform MyBuffer {
+  float v1;
+  float v2;
+};
+```
+
+#### Uniform Buffers
+
+To use uniform buffers, first add the uniform buffer attributes to your assembly. At least one of these attributes must be defined in the **same** assembly as the uniform buffer struct.
+```cs
+#pragma warning disable CS9113
+using System;
+namespace KittenExtensions
+{
+
+  [AttributeUsage(AttributeTargets.Struct)]
+  internal class KxUniformBufferAttribute(string xmlElement) : Attribute;
+
+  [AttributeUsage(AttributeTargets.Field)]
+  internal class KxUniformBufferLookupAttribute() : Attribute;
+
+  // You can use your own delegate types as long as the signature matches one of these
+  public delegate BufferEx KxBufferLookup(KeyHash hash);
+  public delegate MappedMemory KxMemoryLookup(KeyHash hash);
+  public delegate Span<T> KxSpanLookup<T>(KeyHash hash) where T : unmanaged;
+  public unsafe delegate T* KxPtrLookup<T>(KeyHash hash) where T : unmanaged;
+}
+```
+
+Then make your custom uniform buffer type.
+```cs
+// <MyBuffer Id="MyBuf" Size="1" />, where Size is the number of sequential MyBufferUbo elements in the buffer
+[KxUniformBuffer("MyBuffer")]
+[StructLayout(LayoutKind.Sequential, Pack=1)]
+public struct MyBufferUbo
+{
+  public float V1;
+  public float V2;
+
+  // lookup delegate fields must be static fields on the buffer element type
+  // the names and specific types of these are not relevant, as long as the delegate signature matches
+  // these are not all required, but you will need at least one to be able to set the uniform data
+  [KxUniformBufferLookup] public static KxBufferLoop LookupBuffer;
+  [KxUniformBufferLookup] public static KxMemoryLookup LookupMemory;
+  [KxUniformBufferLookup] public static KxSpanLookup<MyBufferUbo> LookupSpan; // gives a Span<T> of length Size
+  [KxUniformBufferLookup] public static KxPtrLookup<MyBufferUbo> LookupPtr; // gives T* to first element
+}
+```
+
+The buffers can then be accessed via a lookup function. `Id` is not required on the buffer xml element, but it is the only way you will be able to access the buffer.
+```cs
+Span<MyBufferUbo> data = MyBufferUbo.LookupSpan(KeyHash.Make("MyBuf"));
+```
+
+Buffers can be shared between shaders by specifying `Id` without `Size`.
+```xml
+<Assets>
+  <ShaderEx Id="MyFragmentShader" Path="MyShader.frag">
+    <MyBuffer Id="MyBuf" Size="1" />
+  </ShaderEx>
+  <ShaderEx Id="MyFragmentShader2" Path="MyShader2.frag">
+    <MyBuffer Id="MyBuf" />
+  </ShaderEx>
+  <MyBuffer Id="MyBuf2" Size="1" />
+  <ShaderEx Id="MyFragmentShader3" Path="MyShader.frag">
+    <MyBuffer Id="MyBuf2" />
+  </ShaderEx>
+</Assets>
 ```
