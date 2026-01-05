@@ -1,8 +1,11 @@
 # KittenExtensions
 
-Utilities for extending KSA assets.
+KSA Modding Utilities
+
+NOTE: This is still under development and the XML/API may change. It is also likely going to be split into 2 mods (xml patching/assets in one, shaders in another)
 
 Current Features:
+- Allows modders to write patches that alter any XML file (including in Core or other mods)
 - Allows adding new xml asset types that can be used by any mod XML
 - Adds a `<ShaderEx>` asset that allows adding additional texture and uniform buffer bindings to the fragment shader of a gauge component
 - Adds a `<GaugeCanvasEx>` asset that allows adding a post-processing shader to the rendered gauge
@@ -19,7 +22,220 @@ Current Features:
     enabled = true
     ```
 
-## Modder Usage
+
+## XML Patching
+NOTE: The patch format is not finalized and may change
+
+To patch game xml files, add a new patch file entry to your mod.toml
+```toml
+# MyMod/mod.toml
+name = "MyMod"
+
+patches = [ "MyPatch.xml" ]
+```
+and make the corresponding patch file.
+```xml
+<!-- MyMod/MyPatch.xml -->
+<Patch>
+  <!-- patches -->
+</Patch>
+```
+
+### GameData Document
+Patch operations run against the GameData xml document, constructed from xml files from all enabled mods
+```xml
+<Root>
+  <!-- each enabled mod in same order as manifest -->
+  <Mod Id="Core">
+    <!-- each asset/system/meshcollection/patch file loaded in and Path attribute added -->
+    <System Id="Sol" Path="SolSystem.xml">
+      <!-- rest of file contents -->
+    </System>
+    <Assets>
+      <!-- ... -->
+    </Assets>
+  </Mod>
+  <Mod Id="MyMod">
+    <!-- ... -->
+    <Patch Path="MyPatch.xml">
+      <!-- ... -->
+    </Patch>
+  </Mod>
+</Root>
+```
+
+If you want to inspect the GameData document after patching is done, you can enable the debug flag in your mod manifest:
+```toml
+# %USER%/my games/Kitten Space Agency/manifest.toml
+
+[[mods]]
+id = "KittenExtensions"
+enabled = true
+debug = true
+```
+This will save a `root.xml` file to the same directory as the `manifest.toml` which contains the patched GameData document.
+
+### Patch Execution
+After loading the GameData document, each `<Patch>` file under each `<Mod>` is executed in order. The list of `<Mod>` and `<Patch>` nodes are loaded at the start, so reordering or removing those elements will not affect the patches run. The data inside a `<Patch>` however is read at the time it is executed, so patches may alter patches that will be executed after it. Each operation element in each `<Patch>` is executed with the `<Root>` node as the context (starting with an XPath of `/Root/`, not `/`).
+
+### Patch Operations
+
+#### Path Attribute
+
+The `Path` attribute must be a valid XPath 1.0 expression ([RFC](https://www.w3.org/TR/1999/REC-xpath-19991116/), [Wiki](https://en.wikipedia.org/wiki/XPath)). It must resolve to a `node-set` as defined in the spec.
+
+The `Path` is executed from the current context node (`<Root>` unless inside a `<With>` op).
+
+#### Pos Attribute
+`<Update>` and `<Copy>` operations have a `Pos` attribute that defines where the update should occur. This value has different meaning depending on the selected node.
+
+| `Pos` | Element | Text/Attribute |
+| --- | --- | --- |
+| `Default` | same as `Merge` | same as `Replace` |
+| `Replace` | replace entire element | replace value |
+| `Merge` | merge elements (see Merge docs below) | Invalid |
+| `Append` | add to end of children | add to end of value |
+| `Prepend` | add to beginning of children | add to beginning of value |
+| `Before` | insert as previous sibling | Invalid |
+| `After` | insert as following sibling | Invalid |
+
+#### `<Update>`
+Patches xml nodes at `Path` (defaults to context node) with the children of `<Update>` using the given `Pos` (defaults to `Default`). When targeting text or attribute nodes, the contents should be text (with no `<Elements>`).
+```xml
+<Update Path="Target XPath" Pos="Pos">
+  <!-- any valid XML Content -->
+</Update>
+```
+
+#### `<Delete>`
+Deletes xml nodes at `Path` (defaults to context node).
+```xml
+<Delete Path="Target XPath" />
+```
+
+#### `<Copy>`
+Patches xml nodes at `Path` (defaults to context node) with the value at `From` (defaults to context node) using the given `Pos` (defaults to `Default`). When targeting text or attribute nodes, `From` should target either an expression result, another attribute or text node, or an element with only text content.
+```xml
+<Copy Path="Target XPath" From="Source XPath" Pos="Pos" />
+```
+
+#### `<If>` `<IfAny>` `<IfNone>`
+Executes a set of operations depending on the result of the `Path` expression. Child operations are run with the same context node as the `<If>` operation.
+```xml
+<If Path="XPath Expression">
+  <Any>
+    <!-- any patch op element -->
+    <!-- runs when Path is true, non-zero and non-NaN, a non-empty string, or a non-empty node-set -->
+  </Any>
+  <None>
+    <!-- any patch op element -->
+    <!-- runs when Path is false, zero or NaN, an empty string, or an empty node-set -->
+  </None>
+</If>
+<IfAny Path="XPath Expression">
+  <!-- any patch op element -->
+  <!-- equivalient to <If><Any>...</Any></If> -->
+</IfAny>
+<IfNone Path="XPath Expression">
+  <!-- any patch op element -->
+  <!-- equivalient to <If><None>...</None></If> -->
+</IfNone>
+```
+
+#### `<With>`
+Executes a set of operations using the `Path` nodes as the context. When `Path` selects multiple nodes, the child contents will be run **once for each selected node**.
+```xml
+<With Path="Context XPath">
+  <!-- any patch op element -->
+</With>
+```
+
+#### Merging
+When an `<Update>` or `<Copy>` operation has a `Pos` of `Merge` (default when targeting elements), each selected source element is merged with each selected target element.
+- All attributes are copied from the source element (replacing the existing value if present)
+- Each child of the source is matched with a child node in the target
+  - If the source element has an `Id` attribute, it matches with the first child element of the target with the same element name and `Id`
+  - If the source element does not have an `Id`, it matches with the first child element of the target with the same element name
+  - The attribute used to match can be configured for each source element with a `_MergeId` attribute
+    - `_MergeId="*"` means any matching element name
+    - `_MergeId="-"` means never match
+    - `_MergeId="AttrName"` means match non-empty values of the `AttrName` attribute
+  - If a match is not found (and for all text elements), the source child node is added as a child of the target element
+  - The position the child is inserted can be controlled with a `_MergePos` attribute on the source parent element
+    - `_MergePos="Append"` (default) adds unmatched nodes after existing children
+    - `_MergePos="Prepend"` adds unmatched nodes before existing children
+
+```xml
+<!-- Merging -->
+<Source _MergePos="Prepend" A="B">
+  <X Id="1">a</X>
+  <X Id="2" Name="Y" _MergeId="Name">b</X>
+  <X Id="3" _MergeId="-">c</X>
+</Source>
+<!-- Into -->
+<Target>
+  <X Id="1">d</X>
+  <X Id="2">e</X>
+  <X Id="3" Name="Y" Z="true">f</X>
+</Target>
+<!-- Produces -->
+<Target A="B">
+  <X Id="3">c</X> <!-- Source X 3 prepended since _MergeId set to not match -->
+  <X Id="1">a</X>
+  <X Id="2">e</X> <!-- not matched since _MergeId set to Name -->
+  <X id="2" Name="Y" Z="true">b</X> <!-- Source X 2 merged into Target X 3 matched by Name -->
+</Target>
+```
+
+### Examples
+Copy a planet from `Core` into a custom `<System>`
+```xml
+<Patch>
+  <!-- set context to MyMod -->
+  <With Path="Mod[@Id='MyMod']">
+    <!-- Copy Venus from core system into custom system (assuming MySystem already exists) -->
+    <Copy
+      Path="System[@Id='MySystem']"
+      From="/Root/Mod[@Id='Core']/System[@Id='SolSystem']/AtmosphericBody[@Id='Venus']"
+      Pos="Append"
+    />
+    <!-- set context to the copied Venus -->
+    <With Path="System/AtmosphericBody[@Id='Venus']">
+      <!-- Change Id to MyVenus -->
+      <Update Path="@Id" Pos="Prepend">My</Update>
+      <!-- Make it a little heavier -->
+      <Update Path="Mass/@Earths">1</Update>
+      <!-- Remove stratus clouds -->
+      <Remove Path="Clouds/CloudType[@Name='Stratus']" />
+    </With>
+  </With>
+</Patch>
+```
+
+Adjust orbit colors of planets based on current value
+```xml
+<Patch>
+  <!-- run for each PlanetaryBody and AtmosphericBody anywhere in the GameData document -->
+  <With Path="//PlanetaryBody | //AtmosphericBody">
+    <If Path="sum(Color/@*) > 1.5">
+      <Any>
+        <!-- if R+G+B of orbit color is >1.5 make each RGB val brighter -->
+        <With Path="Color/@*">
+          <Copy From="1-(1-.)*0.5" />
+        </With>
+      </Any>
+      <None>
+        <!-- otherwise make each RGB val darker -->
+        <With Path="Color/@*">
+          <Copy From=".*0.5" />
+        </With>
+      </None>
+    </If>
+  </With>
+</Patch>
+```
+
+## Asset Extensions
 
 ### XML Extensions
 

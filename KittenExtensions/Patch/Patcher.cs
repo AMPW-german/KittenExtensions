@@ -56,7 +56,8 @@ public static class XmlPatcher
     LoadData();
     RunPatches();
 
-    RootDoc.Save("root.xml");
+    if (DebugEnabled())
+      RootDoc.Save(Path.Combine(Constants.DocumentsFolderPath, "root.xml"));
   }
 
   private static List<XmlElement> ChildElementList(XmlNode node, string path) =>
@@ -145,6 +146,36 @@ public static class XmlPatcher
     [TomlField("patches")]
     public string[] Patches = [];
   }
+
+  private static bool DebugEnabled()
+  {
+    try
+    {
+      var manifest = TomletMain.To<ModManifestToml>(File.ReadAllText(ModLibrary.LocalManifestPath));
+      return manifest.Mods.FirstOrDefault(mod => mod.Id == "KittenExtensions" && mod.Enabled)?.Debug ?? false;
+    }
+    catch (Exception)
+    {
+      return false;
+    }
+  }
+
+  private class ModManifestToml
+  {
+    [TomlDoNotInlineObject]
+    [TomlField("mods")]
+    public List<ModEntryToml> Mods = [];
+  }
+
+  private class ModEntryToml
+  {
+    [TomlField("id")]
+    public string Id = "";
+    [TomlField("enabled")]
+    public bool Enabled = true;
+    [TomlField("debug")]
+    public bool Debug = false;
+  }
 }
 
 public static partial class Extensions
@@ -160,7 +191,7 @@ public static partial class Extensions
   {
     var list = new List<XPathNavigator>(iter.Count);
     while (iter.MoveNext())
-      list.Add(iter.Current);
+      list.Add(iter.Current.Clone());
     return list;
   }
 }

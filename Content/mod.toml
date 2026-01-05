@@ -2,4 +2,4 @@
 name = "KittenExtensions"
 
 assets = [ "Assets.xml" ]
-patches = [ "TestPatch.xml" ]
+# patches = [ "TestPatch.xml" ]

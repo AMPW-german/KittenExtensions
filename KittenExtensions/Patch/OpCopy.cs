@@ -27,7 +27,8 @@ public class XmlCopyOp : XmlOp
       switch (target)
       {
         case XmlElement el: Copy(el, source); break;
-        case XmlAttribute attr: Copy(attr, source); break;
+        case XmlAttribute attr: CopyText(attr, source); break;
+        case XmlText text: CopyText(text, source); break;
         default: throw new InvalidOperationException($"Unknown node type {source.GetType()}");
       }
     }
@@ -71,7 +72,7 @@ public class XmlCopyOp : XmlOp
     }
   }
 
-  private void Copy(XmlAttribute target, object source)
+  private void CopyText(XmlNode target, object source)
   {
     string copyVal;
     if (source is List<XmlNode> srcNodes)
@@ -99,7 +100,7 @@ public class XmlCopyOp : XmlOp
       Position.Replace or Position.Default => copyVal,
       Position.Append => target.Value + copyVal,
       Position.Prepend => copyVal + target.Value,
-      _ => throw new InvalidOperationException($"Invalid Pos for Copy to attribute: {Pos}"),
+      _ => throw new InvalidOperationException($"Invalid Pos for Copy to value: {Pos}"),
     };
 
     if (target.Value == "")
