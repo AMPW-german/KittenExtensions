@@ -15,7 +15,7 @@ using Tomlet.Attributes;
 
 namespace KittenExtensions.Patch;
 
-public static class XmlPatcher
+public static partial class XmlPatcher
 {
   private static XmlDocument RootDoc;
   private static XmlElement RootNode;
@@ -54,23 +54,47 @@ public static class XmlPatcher
   public static void OnPrepare()
   {
     LoadData();
-    RunPatches();
 
     if (DebugEnabled())
+    {
       RootDoc.Save(Path.Combine(Constants.DocumentsFolderPath, "root.xml"));
+      var patchTask = new PatchTask();
+      while (patchTask.Show)
+        patchTask.OnFrame();
+    }
+    else
+      RunPatches();
   }
 
   private static List<XmlElement> ChildElementList(XmlNode node, string path) =>
     new(node.SelectNodes(path).Cast<XmlElement>());
 
+  private static List<XmlElement> ModNodes = [];
+  private static List<XmlElement> CurPatches = [];
+  private static XmlElement CurPatch;
+  private static XmlElement LastPatch;
+
+  private static IEnumerable<XmlElement> GetPatches()
+  {
+    ModNodes = ChildElementList(RootNode, "Mod");
+    foreach (var mod in ModNodes)
+    {
+      CurPatches = ChildElementList(mod, "Patch");
+      foreach (var patch in CurPatches)
+      {
+        LastPatch = CurPatch;
+        yield return CurPatch = patch;
+      }
+    }
+    LastPatch = CurPatch;
+    CurPatch = null;
+  }
+
   private static void RunPatches()
   {
-    foreach (var mod in ChildElementList(RootNode, "Mod"))
+    foreach (var patch in GetPatches())
     {
-      foreach (var patch in ChildElementList(mod, "Patch"))
-      {
-        RunPatch(patch);
-      }
+      RunPatch(patch);
     }
   }
 
@@ -82,6 +106,7 @@ public static class XmlPatcher
     {
       patch = (XmlPatch)serializer.Deserialize(reader);
     }
+    XmlOpElementPopulator.Populate(element, patch);
 
     patch.Execute(RootNode.CreateNavigator());
   }
