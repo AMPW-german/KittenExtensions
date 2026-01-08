@@ -69,7 +69,7 @@ public static partial class XmlPatcher
   private static List<XmlElement> ChildElementList(XmlNode node, string path) =>
     new(node.SelectNodes(path).Cast<XmlElement>());
 
-  private static IEnumerable<XmlPatch> GetPatches()
+  private static IEnumerable<DeserializedPatch> GetPatches()
   {
     foreach (var mod in ChildElementList(RootNode, "Mod"))
       foreach (var patch in ChildElementList(mod, "Patch"))
@@ -79,51 +79,26 @@ public static partial class XmlPatcher
   private static void RunPatches()
   {
     var ctx = new DefaultOpExecContext(RootNode.CreateNavigator());
-    foreach (var patch in GetPatches())
-    {
-      new PatchExecutor(ctx.Execution(patch)).ToEnd();
-    }
+    var executor = new PatchExecutor(ctx, GetPatches());
+    executor.ToEnd();
   }
 
-  private static XmlPatch DeserializePatch(XmlElement element)
+  private static DeserializedPatch DeserializePatch(XmlElement element)
   {
-    var serializer = AssetEx.GetSerializer<XmlPatch>();
-    XmlPatch patch;
-    using (var reader = new XmlNodeReader(element))
+    var id = $"{(element.ParentNode as XmlElement)?.GetAttribute("Id")}/{element.GetAttribute("Path")}";
+    try
     {
-      patch = (XmlPatch)serializer.Deserialize(reader);
+      var serializer = AssetEx.GetSerializer<XmlPatch>();
+      using var reader = new XmlNodeReader(element);
+      var patch = (XmlPatch)serializer.Deserialize(reader);
+      patch.Id = id;
+      XmlOpElementPopulator.Populate(element, patch);
+      return new(id, element, patch, null);
     }
-    XmlOpElementPopulator.Populate(element, patch);
-
-    patch.Id = $"{(element.ParentNode as XmlElement)?.GetAttribute("Id")}/{element.GetAttribute("Path")}";
-    return patch;
-  }
-
-  private static void RunPatch(XmlElement element, OpExecContext ctx)
-  {
-    var serializer = AssetEx.GetSerializer<XmlPatch>();
-    XmlPatch patch;
-    using (var reader = new XmlNodeReader(element))
+    catch (Exception ex)
     {
-      patch = (XmlPatch)serializer.Deserialize(reader);
+      return new(id, element, null, ex?.InnerException ?? ex);
     }
-    XmlOpElementPopulator.Populate(element, patch);
-
-    patch.Id = $"{(element.ParentNode as XmlElement)?.GetAttribute("Id")}/{element.GetAttribute("Path")}";
-
-    RunOp(ctx.Execution(patch));
-  }
-
-  public static void RunOp(OpExecution exec)
-  {
-    if (exec.Op is IXmlLeafOp leaf)
-    {
-      foreach (var action in leaf.ExecuteLeaf(exec.Context))
-        action.Run();
-    }
-    else
-      foreach (var subExec in exec.Op.Execute(exec.Context))
-        RunOp(subExec);
   }
 
   private static void LoadData()

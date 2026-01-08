@@ -18,8 +18,7 @@ public static partial class XmlPatcher
     private readonly char[] buffer = new char[65536];
 
     private readonly DebugOpExecContext context;
-    private readonly IEnumerator<XmlPatch> patches;
-    private PatchExecutor executor;
+    private readonly PatchExecutor executor;
     private bool followTarget = true;
     private bool followPatch = false;
     private int execTab = 0;
@@ -34,35 +33,30 @@ public static partial class XmlPatcher
     private XmlNode curNode = null;
     private XmlNode curLineNode = null;
 
+    private bool HasError => executor.Error != null;
+
     public PatchDebugPopup()
     {
       title = "PatchDebug####" + PopupId;
-      patches = GetPatches().GetEnumerator();
-      context = new(RootNode.CreateNavigator());
+      context = DebugOpExecContext.NewRoot(RootNode.CreateNavigator());
+      executor = new(context, GetPatches());
 
       xpathContext = RootNode;
 
-      NextPatch();
       UpdatePath();
-    }
-
-    private void NextPatch()
-    {
-      executor?.ToEnd();
-      if (!patches.MoveNext())
-      {
-        executor = null;
-        return;
-      }
-      executor = new(context.Execution(patches.Current));
     }
 
     private void UpdatePath()
     {
+      if (HasError)
+      {
+        followPatch = true;
+        followTarget = false;
+      }
       if (followPatch)
-        SetCurNode(executor?.CurOpElement);
+        SetCurNode(executor.CurElement);
       else if (followTarget)
-        SetCurNode(executor?.CurTarget ?? executor?.CurNav);
+        SetCurNode(executor.CurTarget ?? executor.CurNav);
     }
 
     private void SetCurNode(XmlNode node)
@@ -106,25 +100,24 @@ public static partial class XmlPatcher
       ImGui.AlignTextToFramePadding();
       ImGui.Text("KittenExtensions Patch Debug");
 
-      if (executor != null)
+      if (executor.LastState != PatchExecutor.ExecState.End)
       {
-        if (StepButton("Run Patch", sameLine: false))
-          OnStep(false);
-        if (StepButton("Run All Patches"))
+        if (StepButton("Run All Patches", enabled: !HasError, sameLine: false))
         {
-          while (executor != null)
-            NextPatch();
+          executor.ToEnd();
           UpdatePath();
         }
-        if (StepButton("Step", enabled: executor?.CanStep))
+        if (StepButton("Next Patch", enabled: executor.CanNextPatch))
+          OnStep(executor.NextPatch());
+        if (StepButton("Step", enabled: executor.CanStep))
           OnStep(executor.Step());
-        if (StepButton("Step Over", enabled: executor?.CanStepOver))
+        if (StepButton("Step Over", enabled: executor.CanStepOver))
           OnStep(executor.StepOver());
-        if (StepButton("Step Out", enabled: executor?.CanStepOut))
+        if (StepButton("Step Out", enabled: executor.CanStepOut))
           OnStep(executor.StepOut());
-        if (StepButton("Next Op", enabled: executor?.CanNextOp))
+        if (StepButton("Next Op", enabled: executor.CanNextOp))
           OnStep(executor.ToNextOp());
-        if (StepButton("Next Action", enabled: executor?.CanNextAction))
+        if (StepButton("Next Action", enabled: executor.CanNextAction))
           OnStep(executor.ToNextAction());
       }
       else
@@ -136,6 +129,9 @@ public static partial class XmlPatcher
       ImGui.Separator();
 
       var togglesY = ImGui.GetCursorScreenPos().Y;
+
+      if (newNode && HasError)
+        execTab = 0;
 
       ImGui.SetCursorScreenPos(new(windowStart.X + frame.X, togglesY));
       if (Selectable("Exec Tree", execTab == 0, new float2(150, 0))) execTab = 0;
@@ -149,6 +145,12 @@ public static partial class XmlPatcher
         default: break;
       }
       ImGui.EndChild();
+
+      if (newNode && HasError)
+      {
+        followPatch = true;
+        followTarget = false;
+      }
 
       ImGui.SetCursorScreenPos(new(centerX + frame.X, togglesY));
       if (Selectable("Follow Target", followTarget, new float2(150, 0)))
@@ -182,7 +184,7 @@ public static partial class XmlPatcher
       }
     }
 
-    private static bool StepButton(ImString text, bool? enabled = true, bool sameLine = true)
+    private static bool StepButton(ImString text, bool enabled = true, bool sameLine = true)
     {
       if (sameLine)
         ImGui.SameLine();
@@ -209,8 +211,6 @@ public static partial class XmlPatcher
 
     private void OnStep(bool result)
     {
-      if (!result)
-        NextPatch();
       UpdatePath();
     }
 
@@ -232,24 +232,38 @@ public static partial class XmlPatcher
       var startCursor = ImGui.GetCursorScreenPos();
       var contentRight = startCursor.X + ImGui.GetContentRegionAvail().X;
       startCursor.X += treeSpace + X_SPACING;
+      var highlightCr = ImGui.ColorConvertFloat4ToU32(ImGui.GetStyleColorVec4(ImGuiCol.Button));
       if (parent != null)
       {
-        var isNav = parent.Nav != ctx.Nav;
-        var isExec = parent.ContextExec != ctx.ContextExec && ctx.ContextExec != null;
-        var isAction = parent.ContextAction != ctx.ContextAction && ctx.ContextExec != null;
+        if (ctx.Type == ContextType.Patch && ctx.ContextPatch.Error == null)
+          ctx = ctx.Children[0];
+        var isCur = ctx.Type switch
+        {
+          ContextType.Patch => ctx.ContextPatch == executor.CurPatch,
+          ContextType.Exec => ctx.ContextExec == executor.CurExec,
+          ContextType.Action => ctx.ContextAction == executor.CurAction,
+          _ => false,
+        };
+        highlight = isCur;
+
+        if (isCur && HasError)
+          highlightCr = ImColor8.Red;
 
         ReadOnlySpan<char> text;
 
-        if (isNav)
+        if (ctx.Type == ContextType.Patch)
+        {
+          text = ctx.ContextPatch.Id;
+        }
+        else if (ctx.Type == ContextType.Nav)
         {
           line.AddNodePath(ctx.Nav.UnderlyingObject as XmlNode, parent.Nav.UnderlyingObject as XmlNode);
           text = line.Line;
         }
-        else if (isExec)
+        else if (ctx.Type == ContextType.Exec)
         {
           var op = ctx.ContextExec.Op;
-          highlight = ctx.ContextExec == executor?.CurExec && executor?.CurAction == null;
-          underline = highlight && executor?.LastState == PatchExecutor.ExecState.ExecEnd;
+          underline = highlight && executor.LastState == PatchExecutor.ExecState.ExecEnd;
           if (op is XmlPatch patch)
             text = patch.Id;
           else
@@ -258,11 +272,10 @@ public static partial class XmlPatcher
             text = line.Line;
           }
         }
-        else if (isAction)
+        else if (ctx.Type == ContextType.Action)
         {
           var action = ctx.ContextAction;
-          highlight = action == executor?.CurAction;
-          underline = highlight && executor?.LastState == PatchExecutor.ExecState.ActionEnd;
+          underline = highlight && executor.LastState == PatchExecutor.ExecState.ActionEnd;
           line.Add(action.Type);
           line.Add(' ');
           line.AddNodePath(action.Target);
@@ -331,8 +344,7 @@ public static partial class XmlPatcher
         {
           var start = startCursor + new float2(LINE_WIDTH, 0);
           var end = new float2(contentRight, start.Y + LINE_WIDTH);
-          var cr = ImGui.GetStyleColorVec4(ImGuiCol.Button);
-          parentDl.AddRectFilled(start, end, ImGui.ColorConvertFloat4ToU32(cr));
+          parentDl.AddRectFilled(start, end, highlightCr);
         }
 
         if (highlight && newNode)
@@ -348,6 +360,16 @@ public static partial class XmlPatcher
             ctx.Ended = false;
           }
           open = pop = ImGui.TreeNodeEx(text, TREE_FLAGS | ImGuiTreeNodeFlags.DefaultOpen);
+        }
+        if (isCur && HasError && open)
+        {
+          if (!pop)
+            TreeIndent();
+          var ex = executor.Error;
+          ImGui.TextColored(new(1, 0, 0, 1), ex.Message);
+          ImGui.TextColored(new(1, 0, 0, 1), ex.StackTrace);
+          if (!pop)
+            TreeUnindent();
         }
       }
 
@@ -369,15 +391,13 @@ public static partial class XmlPatcher
       if (highlight)
       {
         var end = endCursor + new float2(LINE_WIDTH, 0);
-        var cr = ImGui.GetStyleColorVec4(ImGuiCol.Button);
-        parentDl.AddRectFilled(startCursor, end, ImGui.ColorConvertFloat4ToU32(cr));
+        parentDl.AddRectFilled(startCursor, end, highlightCr);
       }
 
       if (underline)
       {
         var end = new float2(contentRight, endCursor.Y + LINE_WIDTH);
-        var cr = ImGui.GetStyleColorVec4(ImGuiCol.Button);
-        parentDl.AddRectFilled(endCursor, end, ImGui.ColorConvertFloat4ToU32(cr));
+        parentDl.AddRectFilled(endCursor, end, highlightCr);
       }
     }
 

@@ -6,31 +6,39 @@ using System.Xml;
 
 namespace KittenExtensions.Patch;
 
+public record class DeserializedPatch(string Id, XmlElement Element, XmlPatch Patch, Exception Error);
+
 public class PatchExecutor
 {
   public enum ExecState
   {
+    PatchStart,
+    PatchEnd,
     ExecStart,
     ExecEnd,
     ActionStart,
     ActionEnd,
     End,
+    Error,
   }
 
   private readonly IEnumerator<ExecState> walk;
 
+  public XmlElement CurElement { get; private set; }
+  public DeserializedPatch CurPatch { get; private set; }
   public OpExecution CurExec { get; private set; }
   public OpAction CurAction { get; private set; }
 
-  public XmlElement CurOpElement => CurExec?.Op?.Element;
   public XmlNode CurTarget => CurAction?.Target;
   public XmlNode CurNav => CurExec?.Context.Nav.UnderlyingObject as XmlNode;
 
   public ExecState LastState { get; private set; } = ExecState.ExecStart;
 
-  public PatchExecutor(OpExecution rootExec)
+  public Exception Error { get; private set; }
+
+  public PatchExecutor(OpExecContext ctx, IEnumerable<DeserializedPatch> patches)
   {
-    walk = WalkExec([rootExec]).GetEnumerator();
+    walk = WalkPatches(ctx, patches).GetEnumerator();
     Next(out _);
   }
 
@@ -39,10 +47,23 @@ public class PatchExecutor
     while (Next(out _)) ;
   }
 
-  public bool CanStep => LastState != ExecState.End;
+  public bool CanNextPatch => Error == null && CurPatch != null;
+  public bool NextPatch()
+  {
+    if (LastState == ExecState.PatchEnd)
+      return Next(out _);
+    while (Next(out var state))
+    {
+      if (state == ExecState.PatchEnd)
+        return Next(out _);
+    }
+    return false;
+  }
+
+  public bool CanStep => Error == null && LastState != ExecState.End;
   public bool Step() => Next(out _);
 
-  public bool CanStepOver => CurExec != null && LastState == ExecState.ExecStart;
+  public bool CanStepOver => Error == null && CurExec != null && LastState == ExecState.ExecStart;
   public bool StepOver()
   {
     var cur = CurExec;
@@ -54,7 +75,7 @@ public class PatchExecutor
     return false;
   }
 
-  public bool CanStepOut => CurExec != null;
+  public bool CanStepOut => Error == null && CurExec != null;
   public bool StepOut()
   {
     var depth = LastState == ExecState.ExecStart ? 1 : 0;
@@ -70,7 +91,7 @@ public class PatchExecutor
     return false;
   }
 
-  public bool CanNextAction => LastState != ExecState.End;
+  public bool CanNextAction => Error == null && LastState != ExecState.End;
   public bool ToNextAction()
   {
     while (Next(out var state))
@@ -81,7 +102,7 @@ public class PatchExecutor
     return false;
   }
 
-  public bool CanNextOp => LastState != ExecState.End;
+  public bool CanNextOp => Error == null && LastState != ExecState.End;
   public bool ToNextOp()
   {
     while (Next(out var state))
@@ -94,13 +115,51 @@ public class PatchExecutor
 
   private bool Next(out ExecState state)
   {
-    if (!walk.MoveNext())
+    if (Error != null)
     {
-      state = LastState = ExecState.End;
+      state = ExecState.Error;
       return false;
     }
-    state = LastState = walk.Current;
-    return true;
+    try
+    {
+      if (!walk.MoveNext())
+      {
+        state = LastState = ExecState.End;
+        return false;
+      }
+      state = LastState = walk.Current;
+      return true;
+    }
+    catch (Exception ex)
+    {
+      Error = ex;
+      state = ExecState.Error;
+      return false;
+    }
+  }
+
+  private IEnumerable<ExecState> WalkPatches(OpExecContext ctx, IEnumerable<DeserializedPatch> patches)
+  {
+    foreach (var patch in patches)
+    {
+      CurPatch = patch;
+      var patchCtx = ctx.WithPatch(patch);
+      if (patch.Error != null)
+      {
+        Error = patch.Error;
+        CurElement = patch.Element;
+        yield return ExecState.Error;
+        break;
+      }
+      using var _ = WithElement(patch.Element);
+      var exec = patchCtx.Execution(patch.Patch);
+      yield return ExecState.PatchStart;
+      foreach (var state in WalkExec([exec]))
+        yield return state;
+      yield return ExecState.PatchEnd;
+      exec.Context.End();
+      CurPatch = null;
+    }
   }
 
   private IEnumerable<ExecState> WalkExec(IEnumerable<OpExecution> execs)
@@ -108,6 +167,7 @@ public class PatchExecutor
     var prev = CurExec;
     foreach (var exec in execs)
     {
+      using var _ = WithElement(exec.Op.Element);
       CurExec = exec;
       yield return ExecState.ExecStart;
       if (exec.Op is IXmlLeafOp leaf)
@@ -137,6 +197,20 @@ public class PatchExecutor
       action.Context.End();
     }
     CurAction = null;
+  }
+
+  private ElementScope WithElement(XmlElement el)
+  {
+    var prev = CurElement;
+    CurElement = el;
+    return new(this, prev);
+  }
+
+  private readonly struct ElementScope(PatchExecutor executor, XmlElement prev) : IDisposable
+  {
+    private readonly PatchExecutor executor = executor;
+    private readonly XmlElement prev = prev;
+    public void Dispose() => executor.CurElement = prev;
   }
 }
 
