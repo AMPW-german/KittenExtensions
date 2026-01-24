@@ -319,14 +319,16 @@ public static partial class XmlPatcher
         ImGui.TextColored(ImColor8.Red.AsFloat4(), $"{action.Error}");
 
       actionDetailView.Begin();
-
-      if (type.HasPos)
+      if (action.Context.Valid)
       {
         line.Clear();
-        line.Add("Position: ");
-        line.Add(action.Position);
+        line.Add("Context: ");
+        line.AddNodePath(action.Context);
         using (actionDetailView.TreeNode(
-          default, line.Line, out _, out _, clickable: false, hasChildren: false)) { }
+          default, line.Line, out _, out var clicked, clickable: true, hasChildren: false))
+        {
+          if (clicked) nextCurNode = action.Context;
+        }
       }
       if (action.Patch.Valid)
       {
@@ -338,6 +340,14 @@ public static partial class XmlPatcher
         {
           if (clicked) nextCurNode = action.Patch;
         }
+      }
+      if (type.HasPos)
+      {
+        line.Clear();
+        line.Add("Position: ");
+        line.Add(action.Position);
+        using (actionDetailView.TreeNode(
+          default, line.Line, out _, out _, clickable: false, hasChildren: false)) { }
       }
       if (action.Target.Valid && !action.Target.SameAs(action.Patch))
       {
