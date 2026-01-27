@@ -7,6 +7,7 @@ using Core;
 using HarmonyLib;
 using KittenExtensions.Patch;
 using KSA;
+using RenderCore;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -142,34 +143,8 @@ internal static class Patches
           CodeMatch.Calls(() => default(CommandBuffer).BeginRenderPass(default, default)));
         matcher.ThrowIfInvalid("could not find CommandBuffer.BeginRenderPass call in Program.RenderGame");
 
-
-        //// TODO: Change the rendertarget for the VkRenderPassBeginInfo (4) to the offscreen pass and not the imgui pass to VkRenderPassBeginInfo (5)
-        //matcher.Advance(-2);
-        //matcher.SetOperandAndAdvance(matcher
-        //    .InstructionEnumeration()
-        //    .First(i => i.operand is LocalBuilder lb && lb.LocalIndex == 5).operand
-        //);
-        //matcher.Advance(1);
-
         matcher.RemoveInstruction();
         matcher.InsertAndAdvance(CodeInstruction.Call(() => ImGuiPreRender(default, default, default)));
-
-
-        matcher.Start();
-        FieldInfo FramebufferField =
-            AccessTools.Field(
-                typeof(Brutal.VulkanApi.Abstractions.FrameResources),
-                "Framebuffer");
-
-        // 1. Find the Framebuffer assignment
-        matcher.MatchStartForward(
-            new CodeMatch(OpCodes.Ldloca_S),
-            new CodeMatch(OpCodes.Ldloc_0), // frameResources
-            new CodeMatch(OpCodes.Ldfld, FramebufferField),
-            new CodeMatch(OpCodes.Stfld)
-        );
-
-        matcher.ThrowIfInvalid("Framebuffer assignment not found");
 
 
         matcher.End();
@@ -195,14 +170,15 @@ internal static class Patches
         // 2. Move AFTER the call
         matcher.Advance(1);
 
+        // FrameResources is loc.0
+
         // 3. Insert our call
         matcher.InsertAndAdvance(
             // commandBuffer2
             new CodeInstruction(OpCodes.Ldloc_1),
 
-            // frameResources.Framebuffer
+            // frameResources
             new CodeInstruction(OpCodes.Ldloc_0),
-            new CodeInstruction(OpCodes.Ldfld, FramebufferField),
 
             new CodeInstruction(OpCodes.Ldc_I4_0),
 
