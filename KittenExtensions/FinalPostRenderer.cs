@@ -14,13 +14,18 @@ public class FinalPostRenderer : RenderTechnique
 
     private readonly DescriptorSetLayoutEx bindingLayout;
     private readonly VkDescriptorSet bindingSet;
+    private Framebuffer.FramebufferAttachment Source;
 
     // The image that will be sampled by the post shader (set by caller)
     // Typically this will be the final color attachment from the main render.
     //public Framebuffer.FramebufferAttachment Source { get; private set; }
 
-
-    internal static unsafe RenderPassState createRenderPass(Renderer renderer, int subpassCount)
+    #region renderpasses
+    /// <summary>
+    /// Creates a single render pass with multiple subpasses, where each subpass
+    /// takes as input the output of the previous subpass via input attachments
+    /// </summary>
+    internal static unsafe RenderPassState CreateMultiRenderPass(Renderer renderer, int subpassCount)
     {
         VkSubpassDescription* subpasses =
             stackalloc VkSubpassDescription[subpassCount];
@@ -134,6 +139,65 @@ public class FinalPostRenderer : RenderTechnique
         };
     }
 
+    /// <summary>
+    /// Creates a renderpass for a shader that uses a sampler2d input instead of an input attachment and thus needs its own renderpass.
+    /// </summary>
+    internal static unsafe RenderPassState CreateSingleRenderPass(Renderer renderer)
+    {
+        VkAttachmentDescription colorAttachment = new VkAttachmentDescription();
+        colorAttachment.Format = renderer.ColorFormat;
+        colorAttachment.Samples = VkSampleCountFlags._1Bit;
+
+        colorAttachment.LoadOp = VkAttachmentLoadOp.Load;
+        colorAttachment.StoreOp = VkAttachmentStoreOp.Store;
+
+        colorAttachment.StencilLoadOp = VkAttachmentLoadOp.Load;
+        colorAttachment.StencilStoreOp = VkAttachmentStoreOp.Store;
+
+        colorAttachment.InitialLayout = VkImageLayout.ColorAttachmentOptimal;
+        colorAttachment.FinalLayout = VkImageLayout.PresentSrcKHR;
+
+        VkAttachmentReference colorRef = new VkAttachmentReference();
+        colorRef.Attachment = 0;
+        colorRef.Layout = VkImageLayout.ColorAttachmentOptimal;
+
+        VkSubpassDescription subpass = new VkSubpassDescription();
+        subpass.PipelineBindPoint = VkPipelineBindPoint.Graphics;
+        subpass.ColorAttachmentCount = 1;
+        subpass.ColorAttachments = &colorRef;
+
+        VkSubpassDependency dependency = new VkSubpassDependency();
+        dependency.SrcSubpass = -1;
+        dependency.DstSubpass = 0;
+        dependency.SrcStageMask = VkPipelineStageFlags.ColorAttachmentOutputBit;
+        dependency.DstStageMask = VkPipelineStageFlags.ColorAttachmentOutputBit;
+        dependency.SrcAccessMask = VkAccessFlags.ColorAttachmentWriteBit;
+        dependency.DstAccessMask =
+            VkAccessFlags.ColorAttachmentReadBit |
+            VkAccessFlags.ColorAttachmentWriteBit;
+        dependency.DependencyFlags = VkDependencyFlags.None;
+
+        VkAttachmentDescription* attachments =
+            stackalloc VkAttachmentDescription[1];
+        attachments[0] = colorAttachment;
+
+        VkRenderPassCreateInfo createInfo = new VkRenderPassCreateInfo();
+        createInfo.AttachmentCount = 1;
+        createInfo.Attachments = attachments;
+        createInfo.SubpassCount = 1;
+        createInfo.Subpasses = &subpass;
+        createInfo.DependencyCount = 1;
+        createInfo.Dependencies = &dependency;
+
+        VkRenderPass renderPass = renderer.Device.CreateRenderPass(in createInfo, (VkAllocator)null);
+
+        return new RenderPassState
+        {
+            Pass = renderPass,
+            SampleCount = VkSampleCountFlags._1Bit,
+        };
+    }
+    #endregion
 
     public unsafe FinalPostRenderer(
       Renderer renderer,
@@ -148,6 +212,7 @@ public class FinalPostRenderer : RenderTechnique
     {
         this._subpassIndex = subPass;
 
+        this.Source = source;
         this.finalRenderPass = finalRenderPass.Pass;
         this.extent = extent;
 
@@ -216,6 +281,55 @@ public class FinalPostRenderer : RenderTechnique
       Presets.BlendState.BlendNone,
       out Pipeline
     );
+
+
+    public unsafe void RenderSinglePass(
+        CommandBuffer commandBuffer,
+        RenderPassState singleRenderPass,
+        VkFramebuffer blurFrameBuffer,
+        int dynamicOffset = 0
+    )
+    {
+        ReadOnlySpan<KSA.Rendering.ImageTransition> transitions = stackalloc KSA.Rendering.ImageTransition[]
+        {
+            new KSA.Rendering.ImageTransition(
+                inImage: Source.Image,
+                inSrc: KSA.Rendering.ImageBarrierInfo.Presets.ColorAttachment,
+                inDst: KSA.Rendering.ImageBarrierInfo.Presets.ShaderReadOnlyFragment
+            )
+        };
+        commandBuffer.TransitionImages2(transitions);
+
+        var rect = new VkRect2D(extent);
+        commandBuffer.BeginRenderPass(new VkRenderPassBeginInfo
+        {
+            RenderPass = singleRenderPass.Pass,
+            Framebuffer = blurFrameBuffer,
+            RenderArea = rect,
+        }, VkSubpassContents.Inline);
+
+        commandBuffer.BindPipeline(VkPipelineBindPoint.Graphics, Pipeline);
+
+        commandBuffer.SetViewport(0, [new VkViewport
+            {
+                Width = extent.Width,
+                Height = extent.Height,
+                MinDepth = 0f,
+                MaxDepth = 1f,
+            }]);
+        commandBuffer.SetScissor(0, [rect]);
+
+        // bind global set (set 0) and our set (set 1)
+        commandBuffer.BindDescriptorSets(
+          VkPipelineBindPoint.Graphics, PipelineLayout, 0,
+          [GlobalShaderBindings.DescriptorSet, bindingSet],
+          [GlobalShaderBindings.DynamicOffset(dynamicOffset)]);
+
+        commandBuffer.Draw(4, 1, 0, 0);
+
+        commandBuffer.EndRenderPass();
+    }
+
 
     public unsafe void RenderSubpass(
         CommandBuffer commandBuffer,
