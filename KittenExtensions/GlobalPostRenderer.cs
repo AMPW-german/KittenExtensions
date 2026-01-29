@@ -7,7 +7,7 @@ using System;
 
 namespace KittenExtensions;
 
-public class FinalPostRenderer : RenderTechnique
+public class GlobalPostRenderer : RenderTechnique
 {
     private readonly VkRenderPass finalRenderPass;
     private VkExtent2D extent;
@@ -15,10 +15,6 @@ public class FinalPostRenderer : RenderTechnique
     private readonly DescriptorSetLayoutEx bindingLayout;
     private readonly VkDescriptorSet bindingSet;
     private Framebuffer.FramebufferAttachment Source;
-
-    // The image that will be sampled by the post shader (set by caller)
-    // Typically this will be the final color attachment from the main render.
-    //public Framebuffer.FramebufferAttachment Source { get; private set; }
 
     #region renderpasses
     /// <summary>
@@ -50,7 +46,7 @@ public class FinalPostRenderer : RenderTechnique
             inputRefs[i] = new VkAttachmentReference
             {
                 Attachment = i,
-                Layout = VkImageLayout.AttachmentOptimal  // ← Changed from ColorAttachmentOptimal
+                Layout = VkImageLayout.AttachmentOptimal
             };
 
             subpasses[i] = new VkSubpassDescription
@@ -112,12 +108,7 @@ public class FinalPostRenderer : RenderTechnique
                 StoreOp = VkAttachmentStoreOp.Store,
                 StencilLoadOp = VkAttachmentLoadOp.DontCare,
                 StencilStoreOp = VkAttachmentStoreOp.DontCare,
-
-                // Let render pass handle transitions between subpasses
                 InitialLayout = VkImageLayout.Undefined,
-
-                // FINAL layout is irrelevant for intermediate attachments,
-                // but MUST be something compatible with last usage
                 FinalLayout = VkImageLayout.ShaderReadOnlyOptimal
             };
         }
@@ -189,7 +180,7 @@ public class FinalPostRenderer : RenderTechnique
         createInfo.DependencyCount = 1;
         createInfo.Dependencies = &dependency;
 
-        VkRenderPass renderPass = renderer.Device.CreateRenderPass(in createInfo, (VkAllocator)null);
+        VkRenderPass renderPass = renderer.Device.CreateRenderPass(in createInfo, null);
 
         return new RenderPassState
         {
@@ -199,32 +190,27 @@ public class FinalPostRenderer : RenderTechnique
     }
     #endregion
 
-    public unsafe FinalPostRenderer(
+    public unsafe GlobalPostRenderer(
       Renderer renderer,
       Framebuffer.FramebufferAttachment source,
       RenderPassState finalRenderPass,
-      VkExtent2D extent,
-      ShaderReference vert,
-      ShaderEx frag,
+      GlobalPostShaderAsset shader,
       bool uniqueRenderpass = false,
       int subPass = 0)
-      : base(nameof(FinalPostRenderer), renderer, finalRenderPass, [vert, frag])
+      : base(nameof(GlobalPostRenderer), renderer, finalRenderPass, [shader.VertexShader, shader])
     {
         this._subpassIndex = subPass;
 
         this.Source = source;
         this.finalRenderPass = finalRenderPass.Pass;
-        this.extent = extent;
+        this.extent = renderer.Extent;
 
         var device = renderer.Device;
 
-        // Descriptor pool / set for the fragment shader's input sampler (binding = 0)
         VkDescriptorType descriptorType = uniqueRenderpass ? VkDescriptorType.CombinedImageSampler : VkDescriptorType.InputAttachment;
-        //descriptorType = VkDescriptorType.CombinedImageSampler;
 
-        DescriptorPool = frag.CreateDescriptorPool(device, descriptorType);
-
-        bindingLayout = frag.CreateDescriptorSetLayout(
+        DescriptorPool = shader.CreateDescriptorPool(device, descriptorType);
+        bindingLayout = shader.CreateDescriptorSetLayout(
             device,
             new VkDescriptorSetLayoutBinding
             {
@@ -246,14 +232,13 @@ public class FinalPostRenderer : RenderTechnique
         else
             inputInfo[0] = new VkDescriptorImageInfo
             {
-                // For input attachments: sampler must be null. set ImageLayout to InputAttachmentOptimal to make intent explicit.
                 ImageView = source.ImageView,
                 ImageLayout = VkImageLayout.AttachmentOptimal,
                 Sampler = default,
             };
 
 
-        frag.UpdateDescriptorSets(device, new VkWriteDescriptorSet
+        shader.UpdateDescriptorSets(device, new VkWriteDescriptorSet
         {
             DstBinding = 0,
             DescriptorType = descriptorType,
@@ -262,7 +247,6 @@ public class FinalPostRenderer : RenderTechnique
             ImageInfo = inputInfo,
         });
 
-        // Pipeline layout includes global bindings (set 0) and our sampler binding (set 1)
         PipelineLayout = device.CreatePipelineLayout(
           [GlobalShaderBindings.DescriptorSetLayout, bindingLayout], [], null);
 
@@ -286,8 +270,7 @@ public class FinalPostRenderer : RenderTechnique
     public unsafe void RenderSinglePass(
         CommandBuffer commandBuffer,
         RenderPassState singleRenderPass,
-        VkFramebuffer blurFrameBuffer,
-        int dynamicOffset = 0
+        VkFramebuffer frameBuffer
     )
     {
         ReadOnlySpan<KSA.Rendering.ImageTransition> transitions = stackalloc KSA.Rendering.ImageTransition[]
@@ -304,7 +287,7 @@ public class FinalPostRenderer : RenderTechnique
         commandBuffer.BeginRenderPass(new VkRenderPassBeginInfo
         {
             RenderPass = singleRenderPass.Pass,
-            Framebuffer = blurFrameBuffer,
+            Framebuffer = frameBuffer,
             RenderArea = rect,
         }, VkSubpassContents.Inline);
 
@@ -319,11 +302,10 @@ public class FinalPostRenderer : RenderTechnique
             }]);
         commandBuffer.SetScissor(0, [rect]);
 
-        // bind global set (set 0) and our set (set 1)
         commandBuffer.BindDescriptorSets(
           VkPipelineBindPoint.Graphics, PipelineLayout, 0,
           [GlobalShaderBindings.DescriptorSet, bindingSet],
-          [GlobalShaderBindings.DynamicOffset(dynamicOffset)]);
+          [GlobalShaderBindings.DynamicOffset(0)]);
 
         commandBuffer.Draw(4, 1, 0, 0);
 
@@ -331,9 +313,7 @@ public class FinalPostRenderer : RenderTechnique
     }
 
 
-    public unsafe void RenderSubpass(
-        CommandBuffer commandBuffer,
-        int dynamicOffset = 0)
+    public unsafe void RenderSubpass(CommandBuffer commandBuffer)
     {
         commandBuffer.BindPipeline(
             VkPipelineBindPoint.Graphics,
@@ -354,7 +334,7 @@ public class FinalPostRenderer : RenderTechnique
             PipelineLayout,
             0,
             [GlobalShaderBindings.DescriptorSet, bindingSet],
-            [GlobalShaderBindings.DynamicOffset(dynamicOffset)]);
+            [GlobalShaderBindings.DynamicOffset(0)]);
 
         commandBuffer.Draw(4, 1, 0, 0);
     }

@@ -183,32 +183,26 @@ internal static class Patches
             new CodeInstruction(OpCodes.Ldc_I4_0),
 
             // call our method
-            new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(FinalPostIntegration), nameof(FinalPostIntegration.RenderNow)))
+            new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(GlobalPostShaderHandler), nameof(GlobalPostShaderHandler.RenderNow)))
         );
 
         return matcher.Instructions();
     }
 
-
-
-    //public static RenderPassState offscreenPass2;
-    public static OffscreenTarget offscreenTarget2;
     private static unsafe void ImGuiPreRender(
       CommandBuffer commandBuffer, in VkRenderPassBeginInfo beginInfo, VkSubpassContents contents)
     {
         Renderer renderer = Program.GetRenderer();
 
-        if (offscreenTarget2 == null)
+        if (GlobalPostShaderHandler.offscreenTarget2 == null)
         {
-            offscreenTarget2 = new OffscreenTarget(
+            GlobalPostShaderHandler.offscreenTarget2 = new OffscreenTarget(
                 renderer,
                 renderer.Extent,
-                Program.Instance.ColorFormat,
+                renderer.ColorFormat,
                 renderer.DepthFormat
             );
-            offscreenTarget2.BuildFramebuffer(Program.MainPass.Pass);
-            //offscreenPass2 = Program.OffScreenPass;
-            //offscreenPass2.Pass = offscreenTarget2.CreateRenderPass();
+            GlobalPostShaderHandler.offscreenTarget2.BuildFramebuffer(Program.MainPass.Pass);
         }
 
 
@@ -216,11 +210,10 @@ internal static class Patches
 
         VkRenderPassBeginInfo beginInfo2 = new VkRenderPassBeginInfo();
         beginInfo2.RenderPass = Program.MainPass.Pass;
-        beginInfo2.Framebuffer = offscreenTarget2.FrameBuffer;
+        beginInfo2.Framebuffer = GlobalPostShaderHandler.offscreenTarget2.FrameBuffer;
         beginInfo2.RenderArea = new VkRect2D(renderer.Extent);
         beginInfo2.ClearValues = (VkClearValue*)Program.MainPass.ClearValues.Ptr;
         beginInfo2.ClearValueCount = 2;
-
 
         commandBuffer.BeginRenderPass(in beginInfo2, contents);
     }
@@ -230,7 +223,7 @@ internal static class Patches
     {
         ImGuiRenderers.RebuildAll();
 
-        FinalPostIntegration.Rebuild(Program.GetRenderer());
+        GlobalPostShaderHandler.Rebuild();
     }
 
     [HarmonyPatch(typeof(ModLibrary), nameof(ModLibrary.PrepareAll)), HarmonyPrefix]
