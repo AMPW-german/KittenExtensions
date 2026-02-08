@@ -1,19 +1,16 @@
-
-using Brutal.Collections;
 using Brutal.ImGuiApi;
 using Brutal.VulkanApi;
 using Brutal.VulkanApi.Abstractions;
 using Core;
 using HarmonyLib;
+using KittenExtensions.GlobalPostProcessing;
 using KittenExtensions.Patch;
+using KittenExtensions.PostProcessing;
 using KSA;
-using RenderCore;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
-using System.Text.RegularExpressions;
 
 namespace KittenExtensions;
 
@@ -146,7 +143,6 @@ internal static class Patches
         matcher.RemoveInstruction();
         matcher.InsertAndAdvance(CodeInstruction.Call(() => ImGuiPreRender(default, default, default)));
 
-
         matcher.End();
 
         MethodInfo EndRenderPassMethod =
@@ -155,8 +151,6 @@ internal static class Patches
                 "EndRenderPass"
             );
 
-
-        // 1. Find the EndRenderPass call
         matcher.MatchStartBackwards(
             new CodeMatch(
                 instr => instr.opcode == OpCodes.Call &&
@@ -164,35 +158,30 @@ internal static class Patches
                          mi.Name == "EndRenderPass"
             )
         );
-
         matcher.ThrowIfInvalid("EndRenderPass call not found");
 
-        // 2. Move AFTER the call
         matcher.Advance(1);
-
-        // FrameResources is loc.0
-
-        // 3. Insert our call
         matcher.InsertAndAdvance(
-            // commandBuffer2
-            new CodeInstruction(OpCodes.Ldloc_1),
-
-            // frameResources
-            new CodeInstruction(OpCodes.Ldloc_0),
-
+            new CodeInstruction(OpCodes.Ldloc_1), // commandBuffer2
+            new CodeInstruction(OpCodes.Ldloc_0), // frameResources
             new CodeInstruction(OpCodes.Ldc_I4_0),
-
-            // call our method
             new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(GlobalPostShaderHandler), nameof(GlobalPostShaderHandler.RenderNow)))
         );
 
         return matcher.Instructions();
     }
 
+    private static bool rebuilt = false;
     private static unsafe void ImGuiPreRender(
       CommandBuffer commandBuffer, in VkRenderPassBeginInfo beginInfo, VkSubpassContents contents)
     {
         Renderer renderer = Program.GetRenderer();
+
+        if (!rebuilt)
+        {
+            Program.ScheduleRendererRebuild();
+            rebuilt = true;
+        }
 
         if (GlobalPostShaderHandler.offscreenTarget2 == null)
         {
@@ -205,8 +194,9 @@ internal static class Patches
             GlobalPostShaderHandler.offscreenTarget2.BuildFramebuffer(Program.MainPass.Pass);
         }
 
-
         ImGuiRenderers.Render(Program.GetRenderer(), commandBuffer);
+
+        PostProcessingHandler.RenderNow(commandBuffer);
 
         VkRenderPassBeginInfo beginInfo2 = new VkRenderPassBeginInfo();
         beginInfo2.RenderPass = Program.MainPass.Pass;
@@ -222,8 +212,8 @@ internal static class Patches
     internal static void Program_RebuildRenderer_Postfix()
     {
         ImGuiRenderers.RebuildAll();
-
         GlobalPostShaderHandler.Rebuild();
+        PostProcessingHandler.Rebuild();
     }
 
     [HarmonyPatch(typeof(ModLibrary), nameof(ModLibrary.PrepareAll)), HarmonyPrefix]

@@ -1,13 +1,14 @@
-using Brutal.VulkanApi;
+﻿using Brutal.VulkanApi;
 using Brutal.VulkanApi.Abstractions;
 using Core;
+using KittenExtensions.GlobalPostProcessing;
 using KSA;
 using RenderCore;
 using System;
 
-namespace KittenExtensions;
+namespace KittenExtensions.PostProcessing;
 
-public class GlobalPostRenderer : RenderTechnique
+public class PostProcessingRenderer : RenderTechnique
 {
     private readonly VkRenderPass finalRenderPass;
     private VkExtent2D extent;
@@ -21,7 +22,7 @@ public class GlobalPostRenderer : RenderTechnique
     /// Creates a single render pass with multiple subpasses, where each subpass
     /// takes as input the output of the previous subpass via input attachments
     /// </summary>
-    internal static unsafe RenderPassState CreateMultiRenderPass(Renderer renderer, int subpassCount)
+    internal static unsafe RenderPassState CreateMultiRenderPass(Renderer renderer, int subpassCount, VkFormat colorFormat)
     {
         VkSubpassDescription* subpasses =
             stackalloc VkSubpassDescription[subpassCount];
@@ -87,7 +88,7 @@ public class GlobalPostRenderer : RenderTechnique
         // Attachment 0: Input attachment from external source
         attachments[0] = new VkAttachmentDescription
         {
-            Format = renderer.ColorFormat,
+            Format = colorFormat,
             Samples = VkSampleCountFlags._1Bit,
             LoadOp = VkAttachmentLoadOp.Load,
             StoreOp = VkAttachmentStoreOp.DontCare,
@@ -102,7 +103,7 @@ public class GlobalPostRenderer : RenderTechnique
         {
             attachments[i] = new VkAttachmentDescription
             {
-                Format = renderer.ColorFormat,
+                Format = colorFormat,
                 Samples = VkSampleCountFlags._1Bit,
                 LoadOp = VkAttachmentLoadOp.Clear,
                 StoreOp = VkAttachmentStoreOp.Store,
@@ -133,10 +134,10 @@ public class GlobalPostRenderer : RenderTechnique
     /// <summary>
     /// Creates a renderpass for a shader that uses a sampler2d input instead of an input attachment and thus needs its own renderpass.
     /// </summary>
-    internal static unsafe RenderPassState CreateSingleRenderPass(Renderer renderer)
+    internal static unsafe RenderPassState CreateSingleRenderPass(Renderer renderer, VkFormat colorFormat)
     {
         VkAttachmentDescription colorAttachment = new VkAttachmentDescription();
-        colorAttachment.Format = renderer.ColorFormat;
+        colorAttachment.Format = colorFormat;
         colorAttachment.Samples = VkSampleCountFlags._1Bit;
 
         colorAttachment.LoadOp = VkAttachmentLoadOp.Load;
@@ -190,11 +191,11 @@ public class GlobalPostRenderer : RenderTechnique
     }
     #endregion
 
-    public unsafe GlobalPostRenderer(
+    public unsafe PostProcessingRenderer(
       Renderer renderer,
       Framebuffer.FramebufferAttachment source,
       RenderPassState finalRenderPass,
-      GlobalPostShaderAsset shader,
+      PostProcessingShaderAsset shader,
       bool uniqueRenderpass = false,
       int subPass = 0)
       : base(nameof(GlobalPostRenderer), renderer, finalRenderPass, [shader.VertexShader, shader])
