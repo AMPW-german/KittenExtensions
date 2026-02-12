@@ -3,7 +3,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using System.Xml.Serialization;
 using Brutal.Logging;
@@ -15,7 +17,6 @@ namespace KittenExtensions;
 public static class AssetEx
 {
   private static readonly Dictionary<Type, XmlExtension> xmlExtensions = [];
-  private static readonly Dictionary<Type, XmlSerializer> serializers = [];
 
   public static void Init()
   {
@@ -25,19 +26,34 @@ public static class AssetEx
         if (HasAnyAssetAttribute(asm))
           RegisterAll(asm);
     }
+
+    var overrides = XmlHelper.AttributeOverrides;
+    foreach (var ext in xmlExtensions.Values)
+      ext.BuildOverrides(overrides);
+
+    var existing = new List<Type>(XmlHelper.Serializers.Keys);
+    XmlHelper.Serializers.Clear();
+    foreach (var type in existing)
+      XmlHelper.Serializers.Add(type, new(type, overrides));
+
+    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "<UniverseSerializer>k__BackingField")]
+    extern static ref XmlSerializer UniverseSerializer(
+        [UnsafeAccessorType("KSA.GameSaves, KSA")] object instance = null);
+    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "<VehicleSerializer>k__BackingField")]
+    extern static ref XmlSerializer VehicleSerializer(
+        [UnsafeAccessorType("KSA.VehicleSaves, KSA")] object instance = null);
+
+    UniverseSerializer() = GetSerializer<UniverseData>();
+    VehicleSerializer() = GetSerializer<VehicleSaveData>();
   }
 
   public static XmlSerializer GetSerializer<T>()
   {
     var type = typeof(T);
-    if (serializers.TryGetValue(type, out var serializer))
+    if (XmlHelper.Serializers.TryGetValue(type, out var serializer))
       return serializer;
 
-    var overrides = new XmlAttributeOverrides();
-    foreach (var ext in xmlExtensions.Values)
-      ext.BuildOverrides(overrides);
-
-    return serializers[type] = new XmlSerializer(type, overrides);
+    return XmlHelper.Serializers[type] = new XmlSerializer(type, XmlHelper.AttributeOverrides);
   }
 
   private static void RegisterAll(Assembly asm)
@@ -117,8 +133,7 @@ public static class AssetEx
     if (!xmlExtensions.TryGetValue(parent, out var ext))
       ext = xmlExtensions[parent] = new(parent);
 
-    if (ext.Add(member, child, xmlElement))
-      serializers.Clear();
+    ext.Add(member, child, xmlElement);
   }
 
   private static void AddUniformBuffer(Type type, string xmlElement)
