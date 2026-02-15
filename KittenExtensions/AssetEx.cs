@@ -84,7 +84,7 @@ public static class AssetEx
         RegisterAttr(type, attr);
   }
 
-  public static bool failAttribute(string message, Type type, CustomAttributeData attr)
+  public static bool FailAttribute(string message, Type type, CustomAttributeData attr)
   {
     DefaultCategory.Log.Warning($"invalid attribute {attr.AttributeType} on {type}: {message}");
     return false;
