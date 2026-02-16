@@ -1,4 +1,3 @@
-
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,17 +12,10 @@ namespace KittenExtensions;
 
 public static class AssetEx
 {
-  private static readonly List<Type> AttributeCheckMethods = [];
-
   private static readonly Dictionary<Type, XmlExtension> xmlExtensions = [];
 
   public static void Init()
   {
-    foreach (var alc in AssemblyLoadContext.All)
-      foreach (var asm in alc.Assemblies)
-        if (HasAssetAttribute(asm, typeof(KxCustomAttribute)))
-          RegisterAllCustomAttributes(asm);
-
     foreach (var alc in AssemblyLoadContext.All)
       foreach (var asm in alc.Assemblies)
         if (HasAnyAssetAttribute(asm))
@@ -58,25 +50,6 @@ public static class AssetEx
     return XmlHelper.Serializers[type] = new XmlSerializer(type, XmlHelper.AttributeOverrides);
   }
 
-  private static void RegisterAllCustomAttributes(Assembly asm)
-  {
-    foreach (var type in GetTypes(asm))
-      foreach (var attr in type.GetCustomAttributesData())
-      {
-        if (attr.AttributeType.FullName != typeof(KxCustomAttribute).FullName)
-          continue;
-
-        // Ensure that only valid attributes from their source assembly are added
-        if (type.GetMethod("Check", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic) != null)
-        {
-          if (!AttributeCheckMethods.Any(t => t.FullName == type.FullName))
-            AttributeCheckMethods.Add(type);
-          else
-            DefaultCategory.Log.Warning($"Couldn't add {type.FullName} from {type.Assembly} because customAttributes already contains an instance.");
-        }
-      }
-  }
-
   private static void RegisterAll(Assembly asm)
   {
     foreach (var type in GetTypes(asm))
@@ -84,20 +57,40 @@ public static class AssetEx
         RegisterAttr(type, attr);
   }
 
-  public static bool FailAttribute(string message, Type type, CustomAttributeData attr)
-  {
-    DefaultCategory.Log.Warning($"invalid attribute {attr.AttributeType} on {type}: {message}");
-    return false;
-  }
-
   private static bool RegisterAttr(Type type, CustomAttributeData attr)
   {
-    Type AttributeType = AttributeCheckMethods.FirstOrDefault(t => t.FullName == attr.AttributeType.FullName);
-    if (AttributeType == null) return false;
-    var method = AttributeType.GetMethod("Check", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+    bool fail(string message)
+    {
+      DefaultCategory.Log.Warning($"invalid attribute {attr.AttributeType} on {type}: {message}");
+      return false;
+    }
 
-    if (method == null) return false;
-    else return (bool)method.Invoke(null, new object[] { type, attr });
+    if (attr.AttributeType.FullName == typeof(KxAssetAttribute).FullName)
+    {
+      if (attr.ConstructorArguments.Count < 1)
+        return fail("not enough arguments");
+
+      if (!ValidateArg(attr, 0, out string elName, out var err))
+        return fail(err);
+
+      AddExtension(typeof(AssetBundle), nameof(AssetBundle.Assets), type, elName);
+    }
+    else if (attr.AttributeType.FullName == typeof(KxAssetInjectAttribute).FullName)
+    {
+      if (attr.ConstructorArguments.Count < 3)
+        return fail("not enough arguments");
+
+      if (!ValidateArg(attr, 0, out Type parent, out var err))
+        return fail(err);
+      if (!ValidateArg(attr, 1, out string member, out err))
+        return fail(err);
+      if (!ValidateArg(attr, 2, out string xmlElement, out err))
+        return fail(err);
+
+      AddExtension(parent, member, type, xmlElement);
+    }
+
+    return true;
   }
 
   public static bool ValidateArg<T>(CustomAttributeData attr, int argIdx, out T val, out string err)
@@ -127,13 +120,14 @@ public static class AssetEx
     ext.Add(member, child, xmlElement);
   }
 
-  private static bool HasAnyAssetAttribute(Assembly asm) => AttributeCheckMethods.Any(kvp => HasAssetAttribute(asm, kvp));
-
-  private static bool HasAssetAttribute(Assembly asm, Type t)
+  private static bool HasAnyAssetAttribute(Assembly asm) =>
+    HasAssetAttribute<KxAssetAttribute>(asm) ||
+    HasAssetAttribute<KxAssetInjectAttribute>(asm);
+  private static bool HasAssetAttribute<T>(Assembly asm) where T : Attribute
   {
     try
     {
-      return asm.GetType(t.FullName) != null;
+      return asm.GetType(typeof(T).FullName) != null;
     }
     catch
     {
