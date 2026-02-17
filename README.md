@@ -2,14 +2,11 @@
 
 KSA Modding Utilities
 
-NOTE: This is still under development and the XML/API may change. It is also likely going to be split into 2 mods (xml patching/assets in one, shaders in another)
+NOTE: This is still under development and the XML/API may change. [ShaderExtensions](https://github.com/AMPW-german/ShaderExtensions) is now a separate mod for shader related things.
 
 Current Features:
 - Allows modders to write patches that alter any XML file (including in Core or other mods)
 - Allows adding new xml asset types that can be used by any mod XML
-- Adds a `<ShaderEx>` asset that allows adding additional texture and uniform buffer bindings to the fragment shader of a gauge component
-- Adds a `<GaugeCanvasEx>` asset that allows adding a post-processing shader to the rendered gauge
-- Adds a `<ImGuiShader>` asset that allows running a custom shader for a specific window
 
 ## Installation
 

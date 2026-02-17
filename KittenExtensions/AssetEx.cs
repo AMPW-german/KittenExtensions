@@ -93,7 +93,7 @@ public static class AssetEx
     return true;
   }
 
-  public static bool ValidateArg<T>(CustomAttributeData attr, int argIdx, out T val, out string err)
+  private static bool ValidateArg<T>(CustomAttributeData attr, int argIdx, out T val, out string err)
     where T : class
   {
     var arg = attr.ConstructorArguments[argIdx];
@@ -112,7 +112,7 @@ public static class AssetEx
     return true;
   }
 
-  public static void AddExtension(Type parent, string member, Type child, string xmlElement)
+  private static void AddExtension(Type parent, string member, Type child, string xmlElement)
   {
     if (!xmlExtensions.TryGetValue(parent, out var ext))
       ext = xmlExtensions[parent] = new(parent);
