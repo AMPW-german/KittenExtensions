@@ -2,7 +2,7 @@ dotnet build
 
 Push-Location "C:\Program Files\StarMap"
 try {
-  .\StarMap.exe
+  .\StarMap.Loader.exe
 } finally {
   Pop-Location
 }

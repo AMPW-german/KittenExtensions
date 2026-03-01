@@ -3,7 +3,8 @@
     <ModName>KittenExtensions</ModName>
     <KSADir>C:\Program Files\Kitten Space Agency\</KSADir>
     <KSAContent>$(KSADir)Content\</KSAContent>
-    <ModDir>$(KSAContent)$(ModName)\</ModDir>
+    <UserModDir>$(Home)\Documents\my games\Kitten Space Agency\mods\</UserModDir>
+    <ModDir>$(UserModDir)$(ModName)\</ModDir>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Lib.Harmony" Version="2.4.2" />
