@@ -26,6 +26,7 @@
 		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 
 		<Authors>tom_is_unlucky, AMPW</Authors>
+		<Description>XML Patching (ModuleManager like), Custom XML Assets</Description>
 		<Copyright>MIT</Copyright>
 	</PropertyGroup>
 
@@ -44,17 +45,15 @@
 		<InformationalVersionPostfix>-debug</InformationalVersionPostfix>
 	</PropertyGroup>
 
+	<PropertyGroup Condition="'$(Configuration)'=='Release'">
+		<Optimize>true</Optimize>
+	</PropertyGroup>
+
 	<ItemGroup>
 		<Reference Include="StarMap.API">
 			<HintPath>$(KSAModsDir)StarMap/StarMap.API.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
-	</ItemGroup>
-
-	<ItemGroup>
-		<None Update="mod.toml">
-			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
-		</None>
 	</ItemGroup>
 
 	<Target Name="SetVersionMetadata" BeforeTargets="GetAssemblyVersion">

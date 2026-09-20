@@ -2,6 +2,9 @@
 
 KSA Modding Utilities
 
+This is a continuation of tom_is_unlucky's awesome KittenExtensions mod. All of the credit goes to him.
+It's a replacement with the same mod and directory name, only the SpaceDock name is different.
+
 NOTE: This is still under development and the XML/API may change. [ShaderExtensions](https://github.com/AMPW-german/ShaderExtensions) is now a separate mod for shader related things.
 
 Current Features:

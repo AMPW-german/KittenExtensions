@@ -308,4 +308,4 @@ jobs:
                --form-string "game-version=$KSA_VERSION" \
                --form-string "notify-followers=yes" \
                -F "zipball=@$ZIPBALL" \
-               https://spacedock.info/api/mod/4363/update
+               https://spacedock.info/api/mod/4588/update

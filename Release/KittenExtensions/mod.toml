@@ -1,4 +1,7 @@
-# the name for the mod
 name = "KittenExtensions"
+version = "v0.5.0"
+author = "tom_is_unlucky, AMPW"
+description = "XML Patching (ModuleManager like), Custom XML Assets"
 
-# patches = [ "TestPatch1.xml", "TestPatch2.xml" ]
+[StarMap]
+EntryAssembly = "KittenExtensions"
