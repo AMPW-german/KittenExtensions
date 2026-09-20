@@ -1,5 +1,0 @@
-# the name for the mod
-name = "KittenExtensions"
-
-assets = [ "Assets.xml" ]
-# patches = [ "TestPatch1.xml", "TestPatch2.xml" ]

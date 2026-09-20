@@ -1,38 +1,75 @@
 <Project Sdk="Microsoft.NET.Sdk" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="KittenExtensions.props" />
-  <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <TargetFramework>net10.0</TargetFramework>
-    <TargetFrameworkVersion>net10.0</TargetFrameworkVersion>
-    <LanguageTargets>$(MSBuildToolsPath)\Microsoft.CSharp.targets</LanguageTargets>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <LangVersion>14.0</LangVersion>
-    <OutputPath>bin\$(Configuration)</OutputPath>
-    <AssemblyName>$(ModName)</AssemblyName>
-    <OutputType>Library</OutputType>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>embedded</DebugType>
-    <Optimize>false</Optimize>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <Prefer32Bit>false</Prefer32Bit>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <DebugType>pdbonly</DebugType>
-    <Optimize>true</Optimize>
-    <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <Prefer32Bit>false</Prefer32Bit>
-  </PropertyGroup>
-  <Target Name="CopyToMods" AfterTargets="Build">
-    <RemoveDir Directories="$(ModDir)" />
-    <Message Text="%(_ModFiles.Name) -> %(_ModFiles.Dest)" Importance="high" />
-    <Copy SourceFiles="%(_ModFiles.Src)" DestinationFiles="%(_ModFiles.Dest)" />
-  </Target>
+	<Import Project="KittenExtensions.props" />
+	<PropertyGroup>
+		<Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+		<Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+		<TargetFramework>net10.0</TargetFramework>
+		<TargetFrameworkVersion>net10.0</TargetFrameworkVersion>
+		<LanguageTargets>$(MSBuildToolsPath)\Microsoft.CSharp.targets</LanguageTargets>
+		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+		<LangVersion>14.0</LangVersion>
+		<OutputPath>bin\$(Configuration)</OutputPath>
+		<AssemblyName>$(ModName)</AssemblyName>
+		<OutputType>Library</OutputType>
+
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+
+		<VersionPrefix>0.5.0</VersionPrefix>
+		<Version>$(VersionPrefix)</Version>
+		<AssemblyVersion>0.5.0.0</AssemblyVersion>
+		<FileVersion>$(VersionPrefix).0</FileVersion>
+
+		<GitShortHash>nogit</GitShortHash>
+		<InformationalVersionPostfix></InformationalVersionPostfix>
+		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+
+		<Authors>tom_is_unlucky, AMPW</Authors>
+		<Description>XML Patching (ModuleManager like), Custom XML Assets</Description>
+		<Copyright>MIT</Copyright>
+	</PropertyGroup>
+
+	<PropertyGroup>
+		<DebugType>portable</DebugType>
+		<DebugSymbols>true</DebugSymbols>
+		<Optimize>false</Optimize>
+		<DefineConstants>TRACE</DefineConstants>
+		<ErrorReport>prompt</ErrorReport>
+		<WarningLevel>4</WarningLevel>
+		<Prefer32Bit>false</Prefer32Bit>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)'=='Debug'">
+		<DefineConstants>$(DefineConstants);DEBUG</DefineConstants>
+		<InformationalVersionPostfix>-debug</InformationalVersionPostfix>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)'=='Release'">
+		<Optimize>true</Optimize>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Reference Include="StarMap.API">
+			<HintPath>$(KSAModsDir)StarMap/StarMap.API.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+	</ItemGroup>
+
+	<Target Name="SetVersionMetadata" BeforeTargets="GetAssemblyVersion">
+		<Exec Command="git rev-parse --short HEAD" ConsoleToMSBuild="true" IgnoreExitCode="true"
+			IgnoreStandardErrorWarningFormat="true">
+			<Output TaskParameter="ConsoleOutput" PropertyName="GitShortHashRaw" />
+		</Exec>
+
+		<PropertyGroup>
+			<GitShortHash Condition="'$(GitShortHashRaw)' != ''">
+				$([System.String]::Copy('$(GitShortHashRaw)').Trim())</GitShortHash>
+			<GitShortHash Condition="'$(GitShortHash)' == ''">nogit</GitShortHash>
+			<InformationalVersion>v$(VersionPrefix).$(GitShortHash)$(InformationalVersionPostfix)</InformationalVersion>
+			<ProductVersion>$(InformationalVersion)</ProductVersion>
+		</PropertyGroup>
+	</Target>
+
+	<Import Project="CopyOutput.targets" />
 </Project>

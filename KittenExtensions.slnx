@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/Solution/">
+    <File Path=".github/workflows/dotnet.yml" />
+  </Folder>
   <Project Path="KittenExtensions/KittenExtensions.csproj" />
   <Project Path="XPathPatch/XPathPatch.csproj" />
 </Solution>

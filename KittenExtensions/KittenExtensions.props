@@ -2,27 +2,15 @@
   <PropertyGroup>
     <ModName>KittenExtensions</ModName>
     <KSADir>C:\Program Files\Kitten Space Agency\</KSADir>
-    <KSAContent>$(KSADir)Content\</KSAContent>
-    <UserModDir>$(Home)\Documents\my games\Kitten Space Agency\mods\</UserModDir>
-    <ModDir>$(UserModDir)$(ModName)\</ModDir>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Lib.Harmony" Version="2.4.2" />
     <ProjectReference Include="../XPathPatch/XPathPatch.csproj" />
-
-    <ModFile Include="$(OutputPath)\*.dll" />
-    <ModFile Include="..\Content\**\*" />
 
     <_KsaAssemblies Include="$(KSADir)Brutal*.dll" Path="%(FullPath)" />
     <_KsaAssemblies Include="$(KSADir)KSA.dll" Path="%(FullPath)" />
     <_KsaAssemblies Include="$(KSADir)Planet*.dll" Path="%(FullPath)" />
     <_KsaAssemblies Include="$(KSADir)Tomlet.dll" Path="%(FullPath)" />
     <Reference Include="@(_KsaAssemblies->'%(FileName)')" HintPath="%(Path)" Private="False" />
-
-    <_ModFiles Include="@(ModFile)">
-      <Name>%(RecursiveDir)%(FileName)%(Extension)</Name>
-      <Src>%(FullPath)</Src>
-      <Dest>$(ModDir)%(DestDir)%(RecursiveDir)%(FileName)%(Extension)</Dest>
-    </_ModFiles>
   </ItemGroup>
 </Project>
