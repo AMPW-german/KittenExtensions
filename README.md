@@ -23,6 +23,7 @@ Current Features:
     id = "KittenExtensions"
     enabled = true
     ```
+Add `debug = true` to the KittenExtensions mod entry in the manifest to enable a debug mode: inspect every patch in detail what and where it changes something and see in which order they are applied.
 
 
 ## XML Patching
