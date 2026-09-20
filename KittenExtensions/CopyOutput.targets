@@ -1,0 +1,28 @@
+<Project>
+	<ItemGroup>
+        <CopyDestination Include="$(MSBuildProjectDirectory)/../Release/$(ModName)/" />
+    </ItemGroup>
+
+    <Target Name="CopyBuildOutput" AfterTargets="Build" >
+        <MSBuild Projects="$(MSBuildProjectFile)" Targets="_CopyToSingleDestination" Properties="SingleCopyDestination=%(CopyDestination.Identity)" />
+    </Target>
+
+
+    <Target Name="_CopyToSingleDestination">
+        <Message Text="Refreshing $(SingleCopyDestination)" Importance="high" />
+
+        <!-- Collect files here -->
+        <ItemGroup>
+            <FilesToCopy Include="$(OutputPath)**\*" />
+        </ItemGroup>
+
+        <!-- Remove existing directory -->
+        <RemoveDir Directories="$(SingleCopyDestination)" />
+
+        <!-- Recreate -->
+        <MakeDir Directories="$(SingleCopyDestination)" />
+
+        <!-- Copy preserving structure -->
+        <Copy SourceFiles="@(FilesToCopy)" DestinationFiles="@(FilesToCopy->'$(SingleCopyDestination)%(RecursiveDir)%(Filename)%(Extension)')" />
+    </Target>
+</Project>
