@@ -28,7 +28,7 @@ jobs:
           submodules: recursive
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.x
 
@@ -268,7 +268,7 @@ jobs:
           rm -rf Release/KittenExtensions
           mkdir -p Release/KittenExtensions
 
-          deps_dir="$(pwd)/deps"
+          deps_dir="$(pwd)/deps/"
           ksa_dir="$deps_dir/ksa/"
           dotnet build KittenExtensions/KittenExtensions.csproj -c "$CONFIGURATION" --no-restore /p:KSADir="$ksa_dir" /p:KSAModsDir="$deps_dir"
 
