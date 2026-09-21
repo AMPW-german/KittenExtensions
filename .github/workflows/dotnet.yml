@@ -13,7 +13,6 @@ jobs:
   build-package:
     runs-on: ubuntu-slim
     outputs:
-      versionprefix_changed: ${{ steps.versionprefix.outputs.changed }}
       version: ${{ steps.versionprefix.outputs.version }}
       ksa_version: ${{ steps.ksa-version.outputs.version }}
       artifact_name: ${{ steps.artifact-name.outputs.name }}
@@ -38,6 +37,130 @@ jobs:
         run: |
           mkdir -p deps deps/extracted deps/ksa
 
+      - name: Download latest dependency DLLs from GitHub releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_OWNER: ${{ github.repository_owner }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import urllib.request
+          import zipfile
+
+          owner = os.environ["GH_OWNER"]
+          token = os.environ["GH_TOKEN"]
+          deps_dir = pathlib.Path("deps")
+          extracted_dir = deps_dir / "extracted"
+          extracted_dir.mkdir(parents=True, exist_ok=True)
+
+          def api_get(url: str) -> dict:
+              req = urllib.request.Request(
+                  url,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2026-03-10",
+                  },
+              )
+              with urllib.request.urlopen(req) as response:
+                  return json.loads(response.read().decode("utf-8"))
+
+          def download(url: str, target: pathlib.Path):
+              req = urllib.request.Request(
+                  url,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/octet-stream",
+                      "X-GitHub-Api-Version": "2026-03-10",
+                  },
+              )
+              with urllib.request.urlopen(req) as response:
+                  target.write_bytes(response.read())
+
+          def latest_release(repo: str, repoPath: str) -> dict:
+              return api_get(f"https://api.github.com/repos/{repoPath}/{repo}/releases/latest")
+
+          def find_asset(assets: list, predicate, error: str) -> dict:
+              for asset in assets:
+                  if predicate(asset):
+                      return asset
+              raise RuntimeError(error)
+
+          def download_zip_published_dll(repo: str, repoPath: str, dllName: str, modName: str):
+              release = latest_release(repo, repoPath)
+              assets = release.get("assets", [])
+              zip_asset = find_asset(
+                  assets,
+                  lambda a: a["name"].lower().endswith(".zip"),
+                  f"No zip asset found in latest release for {repo}.",
+              )
+
+              zip_path = deps_dir / f"{repo}-latest.zip"
+              extract_path = extracted_dir / repo
+              extract_path.mkdir(parents=True, exist_ok=True)
+              download(zip_asset["browser_download_url"], zip_path)
+
+              with zipfile.ZipFile(zip_path, "r") as archive:
+                  archive.extractall(extract_path)
+
+              dll_matches = list(extract_path.rglob(dllName))
+              if not dll_matches:
+                  raise RuntimeError(f"{dllName} not found in latest {repo} zip release asset.")
+
+              target = deps_dir / modName / dllName
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(dll_matches[0].read_bytes())
+
+          def download_zip_published_dll_path(repo: str, repoPath: str, dllName: str, modName: str, dll_path: str, pdb: bool):
+              release = latest_release(repo, repoPath)
+              assets = release.get("assets", [])
+              zip_asset = find_asset(
+                  assets,
+                  lambda a: a["name"].lower().endswith(".zip"),
+                  f"No zip asset found in latest release for {repo}.",
+              )
+
+              zip_path = deps_dir / f"{repo}-latest.zip"
+              extract_path = extracted_dir / repo
+              extract_path.mkdir(parents=True, exist_ok=True)
+              download(zip_asset["browser_download_url"], zip_path)
+
+              with zipfile.ZipFile(zip_path, "r") as archive:
+                  archive.extractall(extract_path)
+
+              full_path = extract_path / dll_path / dllName
+
+              if not full_path.exists():
+                  raise RuntimeError(f"{dllName} not found at {dll_path} in latest {repo} zip release asset.")
+
+              target = deps_dir / modName / dllName
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(full_path.read_bytes())
+
+              if pdb:
+                  pdb_name = dllName.replace(".dll", ".pdb")
+                  full_pdb_path = extract_path / dll_path / pdb_name
+                  if not full_pdb_path.exists():
+                      raise RuntimeError(f"{pdb_name} not found at {dll_path} in latest {repo} zip release asset.")
+                  target_pdb = deps_dir / modName / pdb_name
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target_pdb.write_bytes(full_pdb_path.read_bytes())
+
+          def download_direct_dll(repo: str, repoPath: str, dllName: str, modName: str):
+              release = latest_release(repo, repoPath)
+              assets = release.get("assets", [])
+              dll_asset = find_asset(
+                  assets,
+                  lambda a: a["name"].lower() == dllName.lower(),
+                  f"No direct DLL asset named {dllName} found in latest release for {repo}.",
+              )
+              download(dll_asset["browser_download_url"], deps_dir / modName / dllName)
+
+          download_zip_published_dll("StarMap", "StarMapLoader", "StarMap.API.dll", "StarMap")
+          
       - name: Validate private KSA DLL repository setting
         if: ${{ env.KSA_DLL_REPOSITORY == '' }}
         shell: bash
