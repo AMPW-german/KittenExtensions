@@ -160,7 +160,8 @@ jobs:
               download(dll_asset["browser_download_url"], deps_dir / modName / dllName)
 
           download_zip_published_dll("StarMap", "StarMapLoader", "StarMap.API.dll", "StarMap")
-          
+          PY
+
       - name: Validate private KSA DLL repository setting
         if: ${{ env.KSA_DLL_REPOSITORY == '' }}
         shell: bash
