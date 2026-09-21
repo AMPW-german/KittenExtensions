@@ -1,12 +1,5 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <PropertyGroup>
-    <ModName>KittenExtensions</ModName>
-    <KSADir>C:\Program Files\Kitten Space Agency\</KSADir>
-  </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Lib.Harmony" Version="2.4.2" />
-    <ProjectReference Include="../XPathPatch/XPathPatch.csproj" />
-
     <_KsaAssemblies Include="$(KSADir)Brutal*.dll" Path="%(FullPath)" />
     <_KsaAssemblies Include="$(KSADir)KSA.dll" Path="%(FullPath)" />
     <_KsaAssemblies Include="$(KSADir)Planet*.dll" Path="%(FullPath)" />
