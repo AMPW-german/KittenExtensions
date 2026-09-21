@@ -170,7 +170,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.artifact-name.outputs.name }}
-          path: Release/KittenExtensions/
+          path: Release/
 
   release:
     runs-on: ubuntu-slim
