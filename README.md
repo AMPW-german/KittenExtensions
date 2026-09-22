@@ -3,7 +3,10 @@
 KSA Modding Utilities
 
 This is a continuation of tom_is_unlucky's awesome KittenExtensions mod. All of the credit goes to him.
-It's a replacement with the same mod and directory name, only the SpaceDock name is different.
+It replaces the original mod under the new `KittenExtensionsContinued` mod and directory name while keeping the `KittenExtensions` assembly name for compatibility.
+
+> [!WARNING]
+> KittenExtensions Continued (KXC) and the original KittenExtensions (KX) cannot be installed together. Mods that depend on KXC require it as a non-optional dependency, so remove any existing KX installation before installing KXC.
 
 NOTE: This is still under development and the XML/API may change. [ShaderExtensions](https://github.com/AMPW-german/ShaderExtensions) is now a separate mod for shader related things.
 
@@ -14,13 +17,14 @@ Current Features:
 ## Installation
 
 - Required [Starmap](https://github.com/StarMapLoader/StarMap)
-- Download zip from [Releases](https://github.com/tsholmes/KittenExtensions/releases/latest) and extract into one of these locations:
+- Remove any existing KX installation before installing KXC.
+- Download zip from [Releases](https://github.com/AMPW-german/KittenExtensions/releases/latest) and extract into one of these locations:
     - `Documents/My Games/Kitten Space Agency/mods/` (recommended, persists across game updates)
     - Game `Content` folder
 - The game auto-discovers new mods and prompts you to enable them. Alternatively, add to `manifest.toml` in `Documents/My Games/Kitten Space Agency`:
     ```toml
     [[mods]]
-    id = "KittenExtensions"
+    id = "KittenExtensionsContinued"
     enabled = true
     ```
 Add `debug = true` to the KittenExtensions mod entry in the manifest to enable a debug mode: inspect every patch in detail what and where it changes something and see in which order they are applied.
@@ -74,7 +78,7 @@ If you want to inspect the GameData document after patching is done, you can ena
 # Documents/My Games/Kitten Space Agency/manifest.toml
 
 [[mods]]
-id = "KittenExtensions"
+id = "KittenExtensionsContinued"
 enabled = true
 debug = true
 ```

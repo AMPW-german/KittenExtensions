@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 	<Import Project="KSADLLs.props" />
 	<PropertyGroup>
-		<ModName>KittenExtensions</ModName>
+		<ModName>KittenExtensionsContinued</ModName>
 		<Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
 		<Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
 		<TargetFramework>net10.0</TargetFramework>
@@ -10,14 +10,14 @@
 		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
 		<LangVersion>14.0</LangVersion>
 		<OutputPath>bin\$(Configuration)</OutputPath>
-		<AssemblyName>$(ModName)</AssemblyName>
+		<AssemblyName>KittenExtensions</AssemblyName>
 		<OutputType>Library</OutputType>
 
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<AllowUnsafeBlocks>True</AllowUnsafeBlocks>
 
-		<VersionPrefix>0.5.1</VersionPrefix>
+		<VersionPrefix>0.5.2</VersionPrefix>
 		<Version>$(VersionPrefix)</Version>
 		<AssemblyVersion>0.5.0.0</AssemblyVersion>
 		<FileVersion>$(VersionPrefix).0</FileVersion>

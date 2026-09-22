@@ -1,7 +1,0 @@
-name = "KittenExtensions"
-version = "v0.5.1"
-author = "tom_is_unlucky, AMPW"
-description = "XML Patching (ModuleManager like), Custom XML Assets"
-
-[StarMap]
-EntryAssembly = "KittenExtensions"
