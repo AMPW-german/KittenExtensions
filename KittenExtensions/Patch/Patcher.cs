@@ -198,7 +198,7 @@ public static partial class XmlPatcher
         try
         {
             var manifest = TomletMain.To<ModManifestToml>(File.ReadAllText(ModLibrary.LocalManifestPath));
-            debug = manifest.Mods.FirstOrDefault(mod => mod.Id == "KittenExtensions" && mod.Enabled)?.Debug ?? false;
+            debug = manifest.Mods.FirstOrDefault(mod => mod.Id == "KittenExtensionsContinued" && mod.Enabled)?.Debug ?? false;
             return debug.Value;
         }
         catch (Exception)
