@@ -1,3 +1,7 @@
 [submodule "XPathPatch"]
 	path = XPathPatch
 	url = https://github.com/AMPW-german/XPathPatch.git
+[submodule "tooling"]
+	path = tooling
+	url = https://github.com/AMPW-german/KSAModTools.git
+	branch = main
