@@ -2,7 +2,6 @@ using HarmonyLib;
 using KittenExtensions.Patch;
 using KSA;
 using System;
-using System.Collections.Generic;
 using System.Reflection;
 
 namespace KittenExtensions;
@@ -30,51 +29,32 @@ internal static class Patches
 
 
 [HarmonyPatch]
-internal static class XmlLoaderPatch
+internal static class ContentLoaderPatch
 {
-  [HarmonyTargetMethods]
-  internal static IEnumerable<MethodBase> TargetMethods()
-  {
-    yield return typeof(Mod).GetMethod("LoadAssetBundles");
-    yield return typeof(Mod).GetMethod("LoadPlanetMeshes");
-    yield return typeof(Mod).GetMethod("LoadSystems");
-    yield return typeof(Mod).GetMethod("PrepareSystems");
-  }
+  private static readonly MethodInfo ReadSourceMethod = typeof(ContentLoader).GetMethod(
+    nameof(ContentLoader.ReadSource),
+    new[] { typeof(string), typeof(string), typeof(ModManifest), typeof(ContentErrors), typeof(IContentLoadProgress) }) ??
+    throw new InvalidOperationException("Could not find ContentLoader.ReadSource method");
 
-  private static readonly MethodInfo SourceMethod = typeof(XmlLoader).GetMethod(nameof(XmlLoader.Load)) ??
-    throw new InvalidOperationException($"Could not find XmlLoader source method");
+  [HarmonyTargetMethod]
+  private static MethodBase TargetMethod() => ReadSourceMethod;
 
-  private static readonly MethodInfo ReplacementMethod = typeof(XmlPatcher).GetMethod(nameof(XmlPatcher.Load)) ??
-    throw new InvalidOperationException("Could not find XmlPatcher replacement method");
+  [HarmonyPostfix]
+  private static void Postfix(ContentSource __result) => XmlPatcher.OnContentSource(__result);
+}
 
-  [HarmonyTranspiler]
-  internal static IEnumerable<CodeInstruction> Transpile(IEnumerable<CodeInstruction> instructions)
-  {
-    var matcher = new CodeMatcher(instructions);
 
-    matcher.Start();
-    while (matcher.IsValid)
-    {
-      var inst = matcher.Instruction;
-      if (IsDeserializeCall(inst, out var type))
-        inst.operand = ReplacementMethod.MakeGenericMethod(type);
+[HarmonyPatch]
+internal static class GameContentTagsPatch
+{
+  private static readonly MethodInfo BuildMethod = (typeof(ModLibrary).Assembly
+      .GetType("KSA.GameContentTags", throwOnError: true)
+      .GetMethod("Build", BindingFlags.Static | BindingFlags.NonPublic)) ??
+    throw new InvalidOperationException("Could not find GameContentTags.Build method");
 
-      matcher.Advance();
-    }
+  [HarmonyTargetMethod]
+  private static MethodBase TargetMethod() => BuildMethod;
 
-    return matcher.Instructions();
-  }
-
-  private static bool IsDeserializeCall(CodeInstruction inst, out Type type)
-  {
-    type = default;
-    if (inst.operand is not MethodInfo method)
-      return false;
-    if (!method.IsConstructedGenericMethod)
-      return false;
-    if (method.GetGenericMethodDefinition() != SourceMethod)
-      return false;
-    type = method.GetGenericArguments()[0];
-    return true;
-  }
+  [HarmonyPostfix]
+  private static void Postfix(ContentTagTable __result) => AssetEx.OnTagTable(__result);
 }
