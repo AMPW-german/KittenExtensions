@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using System.Xml.Serialization;
 using KittenExtensions.Patch;
@@ -14,6 +13,7 @@ namespace KittenExtensions;
 public static class AssetEx
 {
     private static readonly Dictionary<Type, XmlExtension> xmlExtensions = [];
+    private static readonly List<(string XmlElement, Type Type)> assetExtensions = [];
 
     public static void Init()
     {
@@ -25,30 +25,38 @@ public static class AssetEx
         var overrides = XmlHelper.AttributeOverrides;
         foreach (var ext in xmlExtensions.Values)
             ext.BuildOverrides(overrides);
-
-        var existing = new List<Type>(XmlHelper.Serializers.Keys);
-        XmlHelper.Serializers.Clear();
-        foreach (var type in existing)
-            XmlHelper.Serializers.Add(type, new(type, overrides));
-
-        [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "<UniverseSerializer>k__BackingField")]
-        extern static ref XmlSerializer UniverseSerializer(
-            [UnsafeAccessorType("KSA.GameSaves, KSA")] object instance = null);
-        [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "<VehicleSerializer>k__BackingField")]
-        extern static ref XmlSerializer VehicleSerializer(
-            [UnsafeAccessorType("KSA.VehicleSaves, KSA")] object instance = null);
-
-        UniverseSerializer() = GetSerializer<UniverseData>();
-        VehicleSerializer() = GetSerializer<VehicleSaveData>();
     }
 
-    public static XmlSerializer GetSerializer<T>()
+    public static void OnTagTable(ContentTagTable table)
     {
-        var type = typeof(T);
-        if (XmlHelper.Serializers.TryGetValue(type, out var serializer))
-            return serializer;
+        foreach (var ext in xmlExtensions.Values)
+        {
+            try
+            {
+                ext.BuildOverrides(table.Overrides);
+            }
+            catch (Exception ex)
+            {
+                DefaultCategory.Log.Warning($"KittenExtensions: failed to apply XML overrides for {ext}: {ex.Message}");
+            }
+        }
 
-        return XmlHelper.Serializers[type] = new XmlSerializer(type, XmlHelper.AttributeOverrides);
+        foreach (var (xmlElement, type) in assetExtensions
+            .OrderBy(asset => asset.XmlElement, StringComparer.Ordinal)
+            .ThenBy(asset => asset.Type.FullName, StringComparer.Ordinal))
+        {
+            try
+            {
+                var collection = (ISerializedCollection)Activator.CreateInstance(
+                    typeof(SerializedCollection<>).MakeGenericType(type), $"kx {xmlElement}")!;
+                table.Bind(xmlElement, type, collection);
+            }
+            catch (Exception ex)
+            {
+                DefaultCategory.Log.Warning(
+                    $"KittenExtensions: failed to bind <{xmlElement}> ({type.FullName}) as content: {ex.Message}");
+            }
+        }
     }
 
     private static void RegisterAll(Assembly asm)
@@ -74,7 +82,7 @@ public static class AssetEx
             if (!ValidateArg(attr, 0, out string elName, out var err))
                 return fail(err);
 
-            AddExtension(typeof(AssetBundle), nameof(AssetBundle.Assets), type, elName);
+            assetExtensions.Add((elName, type));
         }
         else if (attr.AttributeType.FullName == typeof(KxAssetInjectAttribute).FullName)
         {
@@ -160,16 +168,25 @@ public class XmlExtension(Type type)
         foreach (var group in injections.GroupBy(inj => inj.Member))
         {
             var member = group.Key;
-            var attrs = new XmlAttributes();
+            var attrs = overrides[type, member.Name];
+            var isNew = attrs == null;
+            if (isNew)
+                attrs = new XmlAttributes();
+            var known = new HashSet<(string, Type)>(
+                attrs.XmlElements.Cast<XmlElementAttribute>().Select(el => (el.ElementName, el.Type)));
             foreach (var attr in member.GetCustomAttributes())
             {
-                if (attr is XmlElementAttribute elAttr)
+                if (attr is XmlElementAttribute elAttr && known.Add((elAttr.ElementName, elAttr.Type)))
                     attrs.XmlElements.Add(elAttr);
             }
             foreach (var inj in group)
-                attrs.XmlElements.Add(new(inj.XmlElement, inj.ChildType));
+            {
+                if (known.Add((inj.XmlElement, inj.ChildType)))
+                    attrs.XmlElements.Add(new(inj.XmlElement, inj.ChildType));
+            }
 
-            overrides.Add(type, member.Name, attrs);
+            if (isNew)
+                overrides.Add(type, member.Name, attrs);
         }
     }
 

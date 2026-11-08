@@ -51,27 +51,28 @@ and make the corresponding patch file.
 ```
 
 ### GameData Document
-Patch operations run against the GameData xml document, constructed from xml files from all enabled mods
+Patch operations run against the GameData xml document, constructed from the unified `assets` and `patches` file lists of all mods in manifest order. Each entry in a mod's `assets` array is imported as a file node named after the file's root element (content files use `<Assets>`), and each `patches` entry as a file node named after its root element (`<Patch>`). Every file node gets `Path` (normalized full path) and `RelPath` (the toml entry) attributes.
 ```xml
 <Root>
-  <!-- each enabled mod in same order as manifest -->
-  <Mod Id="Core">
-    <!-- each asset/system/meshcollection/patch file loaded in and RelPath attribute added -->
-    <System Id="Sol" RelPath="SolSystem.xml">
-      <!-- rest of file contents -->
-    </System>
-    <Assets RelPath="Astronomicals.xml">
+  <!-- each mod in same order as manifest -->
+  <Mod Id="Core" Name="Core" Path=".../Content/Core">
+    <!-- each `assets` file, in toml order -->
+    <Assets RelPath="Astronomicals.xml" Path=".../Content/Core/Astronomicals.xml">
+      <Astronomical .../>
       <!-- ... -->
     </Assets>
-  </Mod>
-  <Mod Id="MyMod">
-    <!-- ... -->
-    <Patch RelPath="MyPatch.xml">
+    <!-- each `patches` file, in toml order -->
+    <Patch RelPath="MyPatch.xml" Path=".../Content/Core/MyPatch.xml">
       <!-- ... -->
     </Patch>
   </Mod>
+  <Mod Id="MyMod" Name="MyMod" Path=".../mods/MyMod">
+    <!-- ... -->
+  </Mod>
 </Root>
 ```
+
+After the patches run, the document is flattened back into KSA's unified content source: every element child of each `<Assets>` file node becomes a content row, stamped with its mod, file and row indexes so KSA's own merge and deserialization stages see the same ordering and attribution as unpatched content. Because the patched source is produced once at load, KX changes are applied before KSA's native content merge/`Modify` handling and are shared by both the preload and full-load passes — patches are never applied twice. KX keeps its own broader patch language and debugger rather than adopting KSA's narrower `Modify` behavior.
 
 If you want to inspect the GameData document after patching is done, you can enable the debug flag in your mod manifest:
 ```toml
@@ -280,10 +281,10 @@ namespace KittenExtensions
 }
 ```
 
-Then make your custom XML asset type. For top-level assets it should extend at least `SerializedId`, but more likely you will want to extend an existing asset type. For types that are only used as an option for an existing field, it only needs to extend the type of the field.
+Then make your custom XML asset type. For top-level assets it should extend at least `SerializedId` (which satisfies KSA's `ILibraryData`/`IListable` collection constraints — each `[KxAsset]` tag is bound to its own serialized collection in KSA's content tag table), but more likely you will want to extend an existing asset type. For types that are only used as an option for an existing field, it only needs to extend the type of the field.
 
 ```cs
-[KxAsset("ShaderEx")] // add <ShaderEx> tag to root <Assets> element
+[KxAsset("ShaderEx")] // bind <ShaderEx> as a top-level content tag
 [KxAssetInject(
   // inject into the GaugeComponent.FragmentShader field as <FragmentEx>
   typeof(GaugeComponent), nameof(GaugeComponent.FragmentShader), "FragmentEx"

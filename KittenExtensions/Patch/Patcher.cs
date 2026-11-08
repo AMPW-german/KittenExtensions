@@ -6,9 +6,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Xml;
-using System.Xml.Serialization;
+using System.Xml.Linq;
 using System.Xml.XPath;
 using Tomlet;
 using Tomlet.Attributes;
@@ -23,35 +22,96 @@ public static partial class XmlPatcher
     private static PatchExecutor Executor;
   private static PatchLogger? Logger;
 
-    private static readonly Dictionary<Type, string> XmlRootName = [];
+    private static readonly Dictionary<string, int> ModIndexByDir = [];
+    private static readonly Dictionary<string, string[]> AssetPathsByDir = [];
+    private static readonly Dictionary<string, PatchDomain.PatchMod> PatchModByDir = [];
+    private static readonly XPName AssetsElName = new("", "", "Assets");
 
-    public static T Load<T>(string filePath, Mod mod) where T : ILibraryData
+    private static string DirKey(string dirPath) =>
+        PatchDomain.NormalizePath(Path.GetFullPath(dirPath));
+
+    public static void OnContentSource(ContentSource source)
     {
-        if (!XmlRootName.TryGetValue(typeof(T), out var rootName))
-        {
-            rootName = typeof(T).GetCustomAttribute<XmlRootAttribute>()?.ElementName;
-            if (string.IsNullOrEmpty(rootName))
-                rootName = typeof(T).Name;
-            XmlRootName[typeof(T)] = rootName;
-        }
-        var result = default(T);
+        if (Executor == null)
+            return;
         try
         {
-            var node = Domain.Mods.FirstOrDefault(m => m.Id == mod.Id).File(Path.GetFullPath(filePath));
-            if (node.Valid)
-            {
-                var serializer = AssetEx.GetSerializer<T>();
-                using var reader = new XPDocReader(node);
-                result = serializer.Deserialize(reader) is T val ? val : default;
-            }
+            RebuildRows(source);
         }
         catch (Exception ex)
         {
             DefaultCategory.Log.Error(ex);
         }
-        result?.OnDataLoad(mod);
-        return result;
     }
+
+    private static void RebuildRows(ContentSource source)
+    {
+        var rows = new List<XElement>(source.Rows.Count);
+        var originalByMod = source.Rows
+            .GroupBy(row => (string)row.Attribute("__Mod") ?? "")
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.Ordinal);
+
+        foreach (var mod in source.Mods)
+        {
+            var dirKey = DirKey(mod.DirectoryPath);
+            var modIndex = ModIndexByDir.GetValueOrDefault(dirKey, -1);
+            if (!PatchModByDir.TryGetValue(dirKey, out var patchMod) || !patchMod.Node.Valid)
+            {
+                if (originalByMod.TryGetValue(mod.Id, out var original))
+                    rows.AddRange(original);
+                continue;
+            }
+
+            var fileIndexByPath = BuildFileIndex(AssetPathsByDir.GetValueOrDefault(dirKey, []));
+            foreach (var file in patchMod.ImportedFiles())
+            {
+                if (IsAssetFile(file))
+                    EmitRows(file, mod.Id, modIndex, fileIndexByPath, rows);
+            }
+        }
+
+        source.Rows.Clear();
+        source.Rows.AddRange(rows);
+    }
+
+    private static bool IsAssetFile(XPNodeRef node) =>
+        node.Type is XPType.Element && node.Name == AssetsElName;
+
+    private static void EmitRows(
+        XPNodeRef fileNode, string modId, int modIndex,
+        Dictionary<string, Queue<int>> fileIndexByPath, List<XElement> rows)
+    {
+        var relAttr = fileNode.Attribute("RelPath");
+        var relPath = relAttr.Valid ? relAttr.Value : "";
+        var fileIndex = NextFileIndex(fileIndexByPath, relPath);
+        var rowIndex = 0;
+        for (var row = fileNode.FirstContent; row.Valid; row = row.NextSibling)
+        {
+            if (row.Type is not XPType.Element)
+                continue;
+            var element = row.ToXElement();
+            ContentStamps.Stamp(element, modId, modIndex, relPath, fileIndex, rowIndex++);
+            rows.Add(element);
+        }
+    }
+
+    private static Dictionary<string, Queue<int>> BuildFileIndex(string[] assetPaths)
+    {
+        var map = new Dictionary<string, Queue<int>>(StringComparer.Ordinal);
+        for (var i = 0; i < assetPaths.Length; i++)
+        {
+            var path = assetPaths[i];
+            if (!map.TryGetValue(path, out var queue))
+                map[path] = queue = new Queue<int>();
+            queue.Enqueue(i);
+        }
+        return map;
+    }
+
+    private static int NextFileIndex(Dictionary<string, Queue<int>> map, string relPath) =>
+        map.TryGetValue(relPath, out var queue) && queue.Count > 0
+            ? queue.Dequeue()
+            : -1;
 
     public static void OnPrepare()
     {
@@ -103,8 +163,12 @@ public static partial class XmlPatcher
 
     private static void LoadData()
     {
-        foreach (var mod in ModLibrary.Manifest.Mods)
-            LoadModData(mod);
+        ModIndexByDir.Clear();
+        AssetPathsByDir.Clear();
+        PatchModByDir.Clear();
+        var mods = ModLibrary.Manifest.Mods;
+        for (var i = 0; i < mods.Count; i++)
+            LoadModData(mods[i], i);
         Executor = Domain.Executor();
     Logger = PatchLogger.Create(Executor);
     }
@@ -130,7 +194,7 @@ public static partial class XmlPatcher
         throw new InvalidOperationException();
     }
 
-    private static void LoadModData(ModEntry modEntry)
+    private static void LoadModData(ModEntry modEntry, int modIndex)
     {
         var tomlPath = Path.Combine("Content", modEntry.Id, "mod.toml");
         if (!File.Exists(tomlPath))
@@ -148,14 +212,15 @@ public static partial class XmlPatcher
             throw ErrorAndExit(ex.ToString(), strLoc: Path.GetFullPath(tomlPath));
         }
 
+        var dirKey = DirKey(dirPath);
+        ModIndexByDir.TryAdd(dirKey, modIndex);
+        AssetPathsByDir[dirKey] = mod.Assets;
+
         var patchMod = Domain.AddMod(modEntry.Id);
+        PatchModByDir[dirKey] = patchMod;
         patchMod.Node.SetAttribute("Name", mod.Name);
         patchMod.Node.SetAttribute("Path", PatchDomain.NormalizePath(dirPath));
 
-        foreach (var path in mod.PlanetMeshCollections)
-            LoadModFile(patchMod, dirPath, path);
-        foreach (var path in mod.SystemTemplates)
-            LoadModFile(patchMod, dirPath, path);
         foreach (var path in mod.Assets)
             LoadModFile(patchMod, dirPath, path);
         foreach (var path in mod.Patches)
@@ -180,10 +245,6 @@ public static partial class XmlPatcher
     {
         [TomlField("name")]
         public string Name = "";
-        [TomlField("planetMeshes")]
-        public string[] PlanetMeshCollections = [];
-        [TomlField("systems")]
-        public string[] SystemTemplates = [];
         [TomlField("assets")]
         public string[] Assets = [];
         [TomlField("patches")]
